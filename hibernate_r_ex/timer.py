@@ -43,23 +43,26 @@ class TimerManager:
             self.current_timer = None
 
     def timing_event(self, server: PluginServerInterface, stop_server):
-        server.logger.info("时间事件激活，检查玩家在线情况")
-        def filter_players(player_list, patterns):
-            """返回（合法玩家列表，被过滤玩家列表）"""
-            whitelist, blacklist = [], []
-            for player in player_list:
-                if any(p.fullmatch(player) for p in patterns):
-                    blacklist.append(player)
-                else:
-                    whitelist.append(player)
-            return whitelist, blacklist
-    
-        whitelist, blacklist = filter_players(lib_online_player.get_player_list(), self.blacklist_player_patterns);
-        server.logger.info(f"白名单玩家：{whitelist}，黑名单玩家：{blacklist}")
-    
-        if len(whitelist) == 0:
-            server.logger.info("服务器无白名单玩家，关闭服务器")
-            stop_server(server)#关闭服务器
+        if server.is_server_running() or server.is_server_startup():
+            server.logger.info("时间事件激活，检查玩家在线情况")
+            def filter_players(player_list, patterns):
+                """返回（合法玩家列表，被过滤玩家列表）"""
+                whitelist, blacklist = [], []
+                for player in player_list:
+                    if any(p.fullmatch(player) for p in patterns):
+                        blacklist.append(player)
+                    else:
+                        whitelist.append(player)
+                return whitelist, blacklist
+        
+            whitelist, blacklist = filter_players(lib_online_player.get_player_list(), self.blacklist_player_patterns);
+            server.logger.info(f"白名单玩家：{whitelist}，黑名单玩家：{blacklist}")
+        
+            if len(whitelist) == 0:
+                server.logger.info("服务器无白名单玩家，关闭服务器")
+                stop_server(server)#关闭服务器
+            else:
+                #启动自己的下一个实例
+                self._start_timer_impl(server,stop_server)
         else:
-            #启动自己的下一个实例
-            self._start_timer_impl(server,stop_server)
+            server.logger.info("服务器未启动，跳过并结束")
