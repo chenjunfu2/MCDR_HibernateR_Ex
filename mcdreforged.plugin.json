@@ -1,7 +1,7 @@
 {
-    "id": "hibernate_r",
-    "version": "1.2.4",
-    "name": "HibernateR",
+    "id": "hibernate_r_ex",
+    "version": "1.2.5",
+    "name": "HibernateR_Ex",
     "description": {
         "en_us": "A MCDReforged plugin. When there are no player in the server, the plugin can make it shutdown. And if someone want to visit the server, the plugin can make the server start again.",
         "zh_cn": "一个MCDReforged插件，可以根据服务器内玩家情况自动开启或关闭服务器"
@@ -10,7 +10,7 @@
         "HIM049",
         "sout_Nantang",
         "RCUTANF",
-        "Chenjunfu2a_utf8.fix_re.player.black.list_timing.event"
+        "chenjunfu2"
     ],
     "link": "https://github.com/HIM049/MCDR_HibernateR",
     "dependencies": {
