@@ -65,4 +65,4 @@ class TimerManager:
                 #启动自己的下一个实例
                 self._start_timer_impl(server,stop_server)
         else:
-            server.logger.info("服务器未启动，跳过并结束")
+            server.logger.info("服务器未启动，跳过所有后续事件")

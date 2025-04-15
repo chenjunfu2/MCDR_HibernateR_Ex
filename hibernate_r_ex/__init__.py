@@ -61,8 +61,11 @@ def on_unload(server: PluginServerInterface):
 @new_thread
 def hr_sleep(server: PluginServerInterface):
     server.logger.info("事件：手动休眠")
-    timer_manager.cancel_timer(server)
-    stop_server(server)
+    if server.is_server_running() or server.is_server_startup():
+        timer_manager.cancel_timer(server)
+        stop_server(server)
+    else:
+        server.logger.info("服务端已是关闭状态，跳过关闭")
 
 # 手动唤醒
 @new_thread
