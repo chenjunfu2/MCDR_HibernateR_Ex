@@ -14,7 +14,7 @@ import online_player_api as lib_online_player
 class FakeServerSocket:
     def __init__(self, server: PluginServerInterface):
         time.sleep(2)
-        with open("config/HibernateR.json", "r") as file:
+        with open("config/HibernateR.json", "r", encoding = "utf8") as file:
             config = json.load(file)
         self.fs_ip = config["ip"]
         self.fs_port = config["port"]

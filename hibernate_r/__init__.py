@@ -26,6 +26,8 @@ def on_load(server: PluginServerInterface, prev_module):
 
     # 构建命令树
     builder = SimpleCommandBuilder()
+    builder.command('!!hr timer start', lambda src: timer_manager.start_timer(server, stop_server))
+    builder.command('!!hr timer stop', lambda src: timer_manager.cancel_timer(server))
     builder.command('!!hr sleep', lambda src: hr_sleep(src.get_server()))
     builder.command('!!hr wakeup', lambda src: hr_wakeup(src.get_server()))
     builder.command('!!hr wakeup fs', lambda src: fake_server_socket.start(src.get_server(), start_server))
@@ -43,9 +45,8 @@ def on_load(server: PluginServerInterface, prev_module):
     if server.is_server_running() or server.is_server_startup():
         wish_server_status = True
         server.logger.info("服务器正在运行，启动计时器")
-        timer_manager.start_timer(server, stop_server)
+        timer_manager.start_timer(server, stop_server)#启动事件
     else:
-
         server.logger.warning("无法判断当前服务器状态，请使用 !!hr start fs 手动启动伪装服务器")
 
 
@@ -66,41 +67,22 @@ def hr_sleep(server: PluginServerInterface):
 # 手动唤醒
 @new_thread
 def hr_wakeup(server: PluginServerInterface):
-
     server.logger.info("事件：手动唤醒")
     if fake_server_socket.stop(server):
-        start_server(server)
+        if server.is_server_running() or server.is_server_startup():
+            server.logger.info("服务端已经是启动状态，跳过启动")
+        else:
+            start_server(server)
     else:
         server.logger.info("伪装服务器关闭失败，无法手动唤醒")
-
-
 
 # 服务器启动完成事件
 @new_thread
 def on_server_startup(server: PluginServerInterface):
     global wish_server_status
     wish_server_status = True
+    timer_manager.start_timer(server, stop_server)#启动事件
     server.logger.info("事件：服务器启动")
-    time.sleep(5)
-    timer_manager.start_timer(server, stop_server)
-
-# 玩家加入事件
-@new_thread
-def on_player_joined(server: PluginServerInterface, player, info):
-    server.logger.info("事件：玩家加入")
-    #time.sleep(5)
-    timer_manager.cancel_timer(server)
-
-
-# 玩家退出事件
-@new_thread
-def on_player_left(server: PluginServerInterface, player):
-    server.logger.info("事件：玩家退出")
-    time.sleep(2)
-    if server.is_server_running():
-        timer_manager.start_timer(server, stop_server)
-
-
 
 @new_thread
 def on_server_stop(server: PluginServerInterface,  server_return_code: int):
@@ -111,8 +93,6 @@ def on_server_stop(server: PluginServerInterface,  server_return_code: int):
         server.logger.warning("意外的服务器关闭，不启动伪装服务器")
     else:
         fake_server_socket.start(server, start_server)
-
-
 
 # 主动关闭服务器
 def stop_server(server: PluginServerInterface):
