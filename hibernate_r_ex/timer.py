@@ -7,18 +7,19 @@ import threading
 
 from mcdreforged.api.all import *
 from .byte_utils import *
+from .json import get_config
 import online_player_api as lib_online_player
 
 class TimerManager:
 
-    def __init__(self):
+    def __init__(self, server: PluginServerInterface):
         self._lock = threading.Lock()
         self.current_timer = None
-        with open("config/HibernateR.json", "r", encoding = "utf8") as file:
-            config = json.load(file)
-            self.wait_sec = config["wait_sec"]
-            blacklist_player = config["blacklist_player"]
-            self.blacklist_player_patterns = [re.compile(p) for p in blacklist_player]# 预编译正则
+        config = get_config()
+        self.wait_sec = config["wait_sec"]
+        blacklist_player = config["blacklist_player"]
+        self.blacklist_player_patterns = [re.compile(p) for p in blacklist_player]# 预编译正则
+        server.logger.info("定时服务初始化完成")
 
     def start_timer(self, server: PluginServerInterface, stop_server):
         with self._lock:

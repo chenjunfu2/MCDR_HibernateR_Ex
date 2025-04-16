@@ -7,15 +7,14 @@ import uuid
 
 from mcdreforged.api.all import *
 from .byte_utils import *
+from .json import get_config
 import online_player_api as lib_online_player
 
 
 
 class FakeServerSocket:
     def __init__(self, server: PluginServerInterface):
-        time.sleep(2)
-        with open("config/HibernateR.json", "r", encoding = "utf8") as file:
-            config = json.load(file)
+        config = get_config()
         self.fs_ip = config["ip"]
         self.fs_port = config["port"]
         self.fs_samples = config["samples"]
@@ -24,6 +23,7 @@ class FakeServerSocket:
         self.fs_kick_message = ""
         self.server_socket = None
         self.close_request = False
+        self.fs_status = False
 
         for message in config["kick_message"]:
             self.fs_kick_message += message + "\n"
@@ -38,29 +38,22 @@ class FakeServerSocket:
 
     @new_thread
     def start(self, server: PluginServerInterface, start_server):
+        # 检查伪装服务器是否在运行
+        if self.fs_status == True:#已经启动了，返回
+            server.logger.info("伪装服务器正在运行")
+        else:
+            self.fs_status = True
 
         #检查服务器是否在运行
         if server.is_server_running() or server.is_server_startup():
             server.logger.info("服务器正在运行,请勿启动伪装服务器!")
             return
 
-        # 检查伪装服务器是否在运行
-        try:
-            # 检查套接字是否已初始化且在监听
-            if self.server_socket and self.server_socket.getsockopt(socket.SOL_SOCKET, socket.SO_ACCEPTCONN):
-                server.logger.info("伪装服务器正在运行")
-                return
-        except Exception as e:
-            pass
-
         result = None
-        server.logger.info("伪装服务端已启动")
+        server.logger.info("伪装服务器已启动")
         while result != "connection_request" and not self.close_request:
-            retry_count = 0
-            max_retries = 5
-            retry_delay = 1
             #FS创建部分
-            while retry_count < max_retries and not self.close_request:
+            while not self.close_request:
                 try:
                     self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     #server.logger.info(f"伪装服务器正在setsockopt")
@@ -70,16 +63,10 @@ class FakeServerSocket:
                     self.server_socket.settimeout(10)
                     break
                 except Exception as e:
-                    server.logger.error(f"伪装服务端启动失败: {e}，重试中...")
+                    server.logger.error(f"伪装服务器启动失败: {e}")
                     self.server_socket.close()
-                    retry_count += 1
-                    time.sleep(retry_delay)
-                    retry_delay *= 2
-
-            if retry_count == max_retries:
-                self.server_socket.close()
-                server.logger.error("重试次数超过限制，伪装服务器启动失败，请检查配置文件或其他占用端口的进程")
-                break
+                    self.close_request = True
+                    break
             if self.close_request:
                 break
 
@@ -119,6 +106,9 @@ class FakeServerSocket:
 
         if self.close_request:
             self.close_request = False
+        #设置退出状态
+        if self.fs_status == True:
+            self.fs_status = False
 
 
     def handle_ping(self, client_socket, recv_data, i, server: PluginServerInterface):
@@ -161,13 +151,18 @@ class FakeServerSocket:
 
 
     def stop(self, server: PluginServerInterface):
-        self.close_request = True
-        server.logger.info("正在关闭伪装服务器")
-        for i in range(5):
-            if not self.close_request:
-                break
-            time.sleep(1)
-
+        if self.fs_status == True:
+            self.fs_status = False
+            self.close_request = True
+            server.logger.info("正在关闭伪装服务器")
+            for i in range(5):
+                if not self.close_request:
+                    break
+                time.sleep(1)
+        else:
+            server.logger.info("伪装服务器已是关闭状态")
+            return
+        
         if self.server_socket:
             try:
                 self.server_socket.close()
@@ -176,6 +171,7 @@ class FakeServerSocket:
                 return True
             except Exception as e:
                 server.logger.error(f"关闭伪装服务器失败: {e}")
+                self.fs_status = True
         else:
             server.logger.info("伪装服务器已关闭")
             return True
