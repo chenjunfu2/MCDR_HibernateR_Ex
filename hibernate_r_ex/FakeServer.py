@@ -8,9 +8,6 @@ import uuid
 from mcdreforged.api.all import *
 from .byte_utils import *
 from .json import get_config
-import online_player_api as lib_online_player
-
-
 
 class FakeServerSocket:
     def __init__(self, server: PluginServerInterface):
@@ -35,63 +32,62 @@ class FakeServerSocket:
             server.logger.info("伪装服务器正在运行")
             return
         
-        #设置标签
-        self.fs_status = True
         #检查服务器是否在运行
         if server.is_server_running() or server.is_server_startup():
             server.logger.info("服务器正在运行,请勿启动伪装服务器!")
             return
 
+         #设置标签
+        self.fs_status = True
         server.logger.info("伪装服务器已启动")
 
         #FS创建部分
-        exit = False
-        try:
-            self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, True)
-            self.server_socket.bind((self.config["ip"], self.config["port"]))
-            self.server_socket.settimeout(10)
-        except Exception as e:
-            server.logger.error(f"伪装服务器启动失败: {e}")
-            self.server_socket.close()
-            exit = True#无法完成创建，退出
-
-        #FS监听部分
-        if exit == False:
+        result = None
+        while result != "connection_request" and self.fs_stop == False:
             try:
-                self.server_socket.listen(50)#最大允许连接数
-                result = None
-                while result != "connection_request" and self.fs_stop == False:
-                    client_socket, client_address = self.server_socket.accept()
-                    try:
-                        server.logger.info(f"收到来自{client_address[0]}:{client_address[1]}的连接")
-                        recv_data = client_socket.recv(1024)
-                        client_ip = client_address[0]
-                        (length, i) = read_varint(recv_data, 0)
-                        (packetID, i) = read_varint(recv_data, i)
-
-                        if packetID == 0:
-                            result = self.handle_ping(client_socket, recv_data, i, server)
-                        elif packetID == 1:
-                            self.handle_pong(client_socket, recv_data, i, server)
-                        else:
-                            server.logger.warning("收到了意外的数据包")
-                    except (TypeError, IndexError):
-                        server.logger.warning(f"[{client_ip}:{client_address[1]}]收到了无效数据({recv_data})")
-                    except Exception as e:
-                        server.logger.error(e)
-
-            except socket.timeout:
-                server.logger.debug("连接超时")
+                self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, True)
+                self.server_socket.bind((self.config["ip"], self.config["port"]))
+                self.server_socket.settimeout(5)#5s超时
+            except Exception as e:
+                server.logger.error(f"伪装服务器启动失败: {e}")
                 self.server_socket.close()
-            except Exception as ee:
-                if(self.fs_stop == False):#如果为True则是主动关闭，不报错，不用关闭socket
-                    server.logger.error(f"发生错误: {ee}")
-                    self.server_socket.close()
+                break#无法完成创建，退出
 
-            #收到连接消息，开启服务器后退出
-            if result == "connection_request":
-                start_server(server)
+            #FS监听部分
+            while result != "connection_request" and self.fs_stop == False:
+                try:
+                    self.server_socket.listen(5)#最大允许连接数
+                    client_socket, client_address = self.server_socket.accept()
+                    server.logger.info(f"收到来自{client_address[0]}:{client_address[1]}的连接")
+                    recv_data = client_socket.recv(1024)
+                    client_ip = client_address[0]
+                    (length, i) = read_varint(recv_data, 0)
+                    (packetID, i) = read_varint(recv_data, i)
+                
+                    if packetID == 0:
+                        result = self.handle_ping(client_socket, recv_data, i, server)
+                    elif packetID == 1:
+                        self.handle_pong(client_socket, recv_data, i, server)
+                    else:
+                        server.logger.warning("收到了意外的数据包")
+                    break
+                except (TypeError, IndexError):
+                    server.logger.warning(f"[{client_ip}:{client_address[1]}]收到了无效数据({recv_data})")
+                    break#跳出
+                except socket.timeout:
+                    server.logger.debug("连接超时")
+                    continue#重试
+                except Exception as e:
+                    server.logger.error(f"发生错误: {ee}")
+                    break#跳出
+            #关闭链接
+            self.server_socket.close()
+            self.server_socket = None
+    
+        #收到连接消息，开启服务器后退出
+        if result == "connection_request":
+            start_server(server)
 
         #设置退出状态
         self.server_socket = None
@@ -143,22 +139,20 @@ class FakeServerSocket:
             server.logger.info("伪装服务器已是关闭状态")
             return False
   
-        server.logger.info("正在关闭伪装服务器")
         self.fs_stop = True#提醒服务器应该关闭
-        try:
-            if self.server_socket is not None:
-                self.server_socket.close()#直接关闭链接，等待上方抛出异常后判断fs_stop
-                #设置时间
-                count = 5
-                while self.fs_status == True:#等待服务器关闭
-                    if count == 0:
-                        server.logger.error("关闭伪装服务器失败: 等待超时")
-                        return False
-                    count = count - 1
-                    time.sleep(1)
-            server.logger.info("已经关闭伪装服务器")
-            return True
-        except Exception as e:
-            server.logger.error(f"关闭伪装服务器失败: {e}")
-            self.fs_status = True
+        server.logger.info("正在关闭伪装服务器")
+        #设置时间
+        count = 6#比socket timeout多1
+        while self.fs_status == True:#等待服务器关闭
+            if count == 0:
+                server.logger.error("关闭伪装服务器失败: 等待超时")
+                return False
+            count = count - 1
+            time.sleep(1)
+
+        if self.server_socket:
+            server.logger.info("等待超时")
             return False
+        else:
+            server.logger.info("伪装服务器已关闭")
+            return True
