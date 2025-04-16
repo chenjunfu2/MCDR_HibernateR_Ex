@@ -8,13 +8,14 @@ import threading
 from mcdreforged.api.all import *
 from .byte_utils import *
 from .json import get_config
-import online_player_api as lib_online_player
+import minecraft_data_api as api
 
 class TimerManager:
 
     def __init__(self, server: PluginServerInterface):
         self._lock = threading.Lock()
         self.current_timer = None
+        self.re_test = False
         config = get_config()
         self.wait_sec = config["wait_sec"]
         blacklist_player = config["blacklist_player"]
@@ -56,14 +57,25 @@ class TimerManager:
                         whitelist.append(player)
                 return whitelist, blacklist
         
-            whitelist, blacklist = filter_players(lib_online_player.get_player_list(), self.blacklist_player_patterns);
-            server.logger.info(f"白名单玩家：{whitelist}，黑名单玩家：{blacklist}")
+
+            result = api.get_server_player_list(timeout=10.0)#延迟10s
+            if result is None:
+                server.logger.error("获取玩家列表失败！")
+            else:
+                player_list = list(map(str, result[2]))
+                whitelist, blacklist = filter_players(player_list, self.blacklist_player_patterns);
+                server.logger.info(f"玩家数量：{result[0]}/{result[1]} 白名单玩家：{whitelist}，黑名单玩家：{blacklist}")
         
             if len(whitelist) == 0:
-                server.logger.info("服务器无白名单玩家，关闭服务器")
-                stop_server(server)#关闭服务器
+                if self.re_test == False:#进行二次测试，以防止玩家刚离开就关服
+                    self.re_test = True#标记
+                    self._start_timer_impl(server,stop_server)#启动自己的下一个实例
+                else:
+                    self.re_test = False#重置
+                    server.logger.info("服务器无白名单玩家，关闭服务器")
+                    stop_server(server)#关闭服务器
             else:
-                #启动自己的下一个实例
-                self._start_timer_impl(server,stop_server)
+                self.re_test = False#重置
+                self._start_timer_impl(server,stop_server)#启动自己的下一个实例
         else:
             server.logger.info("服务器未启动，跳过所有后续事件")

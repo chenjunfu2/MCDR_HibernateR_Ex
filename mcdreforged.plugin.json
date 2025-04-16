@@ -1,6 +1,6 @@
 {
     "id": "hibernate_r_ex",
-    "version": "1.2.6",
+    "version": "1.2.7",
     "name": "HibernateR_Ex",
     "description": {
         "en_us": "A MCDReforged plugin. When there are no player in the server, the plugin can make it shutdown. And if someone want to visit the server, the plugin can make the server start again.",
@@ -14,7 +14,7 @@
     ],
     "link": "https://github.com/HIM049/MCDR_HibernateR",
     "dependencies": {
-        "online_player_api": "*",
+        "minecraft_data_api": ">=1.6.1",
         "mcdreforged": ">=2.0.0-beta.3"
     },
     "resources": [
