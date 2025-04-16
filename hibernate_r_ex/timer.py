@@ -64,18 +64,20 @@ class TimerManager:
             else:
                 player_list = list(map(str, result[2]))
                 whitelist, blacklist = filter_players(player_list, self.blacklist_player_patterns);
-                server.logger.info(f"玩家数量：{result[0]}/{result[1]} 白名单玩家：{whitelist}，黑名单玩家：{blacklist}")
+                server.logger.info(f"玩家数量：{result[0]}/{result[1]}，白名单玩家：{whitelist}，黑名单玩家：{blacklist}")
         
             if len(whitelist) == 0:
                 if self.re_test == False:#进行二次测试，以防止玩家刚离开就关服
                     self.re_test = True#标记
+                    server.logger.info("服务器无白名单玩家，将在下次检测无白名单玩家后关闭服务器")
                     self._start_timer_impl(server,stop_server)#启动自己的下一个实例
                 else:
                     self.re_test = False#重置
-                    server.logger.info("服务器无白名单玩家，关闭服务器")
+                    server.logger.info("两次检测到服务器无白名单玩家，正在关闭服务器")
                     stop_server(server)#关闭服务器
             else:
                 self.re_test = False#重置
+                server.logger.info("服务器有白名单玩家，重置标记状态")
                 self._start_timer_impl(server,stop_server)#启动自己的下一个实例
         else:
             server.logger.info("服务器未启动，跳过所有后续事件")

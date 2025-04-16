@@ -14,24 +14,16 @@ import online_player_api as lib_online_player
 
 class FakeServerSocket:
     def __init__(self, server: PluginServerInterface):
-        config = get_config()
-        self.fs_ip = config["ip"]
-        self.fs_port = config["port"]
-        self.fs_samples = config["samples"]
-        self.fs_motd = config["motd"]["1"] + "\n" + config["motd"]["2"]
+        self.config = get_config()
         self.fs_icon = None
-        self.fs_kick_message = ""
         self.server_socket = None
         self.close_request = False
         self.fs_status = False
 
-        for message in config["kick_message"]:
-            self.fs_kick_message += message + "\n"
-
-        if not os.path.exists(config["server_icon"]):
+        if not os.path.exists(self.config["server_icon"]):
             server.logger.warning("未找到服务器图标，设置为None")
         else:
-            with open(config["server_icon"], 'rb') as image:
+            with open(self.config["server_icon"], 'rb') as image:
                 self.fs_icon = "data:image/png;base64," + base64.b64encode(image.read()).decode()
 
         server.logger.info("伪装服务器初始化完成")
@@ -41,6 +33,7 @@ class FakeServerSocket:
         # 检查伪装服务器是否在运行
         if self.fs_status == True:#已经启动了，返回
             server.logger.info("伪装服务器正在运行")
+            return
         else:
             self.fs_status = True
 
@@ -49,17 +42,16 @@ class FakeServerSocket:
             server.logger.info("服务器正在运行,请勿启动伪装服务器!")
             return
 
-        result = None
         server.logger.info("伪装服务器已启动")
+
+        result = None
         while result != "connection_request" and not self.close_request:
             #FS创建部分
             while not self.close_request:
                 try:
                     self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                    #server.logger.info(f"伪装服务器正在setsockopt")
                     self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, True)
-                    #server.logger.info(f"伪装服务器正在绑定 {self.fs_ip}:{self.fs_port}")
-                    self.server_socket.bind((self.fs_ip, self.fs_port))
+                    self.server_socket.bind((self.config["ip"], self.config["port"]))
                     self.server_socket.settimeout(10)
                     break
                 except Exception as e:
@@ -71,7 +63,6 @@ class FakeServerSocket:
                 break
 
             try:
-                #server.logger.info(f"伪装服务器正在监听 {self.fs_ip}:{self.fs_port}")
                 self.server_socket.listen(5)
                 while result != "connection_request" and not self.close_request:
                     client_socket, client_address = self.server_socket.accept()
@@ -124,9 +115,9 @@ class FakeServerSocket:
         if state == 1:
             server.logger.info("伪装服务器收到了一次ping: %s" % (recv_data))
             motd = {
-                "version": {"name": "Sleeping", "protocol": 2},
-                "players": {"max": 10, "online": 10, "sample": [{"name": sample, "id": str(uuid.uuid4())} for sample in self.fs_samples]},
-                "description": {"text": self.fs_motd}
+                "version": {"name": self.config["version_text"], "protocol": self.config["protocol"]},
+                "players": {"max": len(self.config["samples"]), "online": len(self.config["samples"]), "sample": [{"name": sample, "id": str(uuid.uuid4())} for sample in self.config["samples"]]},
+                "description": {"text": self.config["motd"]}
             }
             if self.fs_icon and len(self.fs_icon) > 0:
                 motd["favicon"] = self.fs_icon
@@ -134,7 +125,7 @@ class FakeServerSocket:
             return "ping_received"
         elif state == 2:
             server.logger.info("伪装服务器收到了一次连接请求: %s" % (recv_data))
-            write_response(client_socket, json.dumps({"text": self.fs_kick_message}))
+            write_response(client_socket, json.dumps({"text": self.config["kick_message"]}))
             self.stop(server)
             server.logger.info("启动服务器")
             #server.start()

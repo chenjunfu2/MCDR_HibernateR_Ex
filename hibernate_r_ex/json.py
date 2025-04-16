@@ -29,11 +29,9 @@ def create_config_file():
     config["ip"] = "0.0.0.0"
     config["port"] = 25565
     config["protocol"] = 2
-    config["motd"] = {}
-    config["motd"]["1"] = "§e服务器正在休眠！"
-    config["motd"]["2"] = "§c进入服务器可将服务器从休眠中唤醒"
+    config["motd"] = "§e服务器正在休眠！\n§c进入服务器可将服务器从休眠中唤醒"
     config["version_text"] = "§4Sleeping"
-    config["kick_message"] = ["§e§l请求成功！", "", "§f服务器正在启动！请稍作等待后进入"]
+    config["kick_message"] = "§e§l请求成功！\n\n§f服务器正在启动！请稍作等待后进入"
     config["server_icon"] = "./server/server-icon.png"
     config["samples"] = ["服务器正在休眠", "进入服务器以唤醒"]
 
