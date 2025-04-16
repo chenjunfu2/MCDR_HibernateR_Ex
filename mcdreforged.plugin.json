@@ -12,7 +12,7 @@
         "RCUTANF",
         "chenjunfu2"
     ],
-    "link": "https://github.com/HIM049/MCDR_HibernateR",
+    "link": "https://github.com/chenjunfu2/MCDR_HibernateR_Ex",
     "dependencies": {
         "minecraft_data_api": ">=1.6.1",
         "mcdreforged": ">=2.0.0-beta.3"
