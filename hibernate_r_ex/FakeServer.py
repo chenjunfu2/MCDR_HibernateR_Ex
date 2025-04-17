@@ -102,12 +102,12 @@ class FakeServerSocket:
 			try:
 				#https://minecraft.wiki/w/Java_Edition_protocol#Handshaking
 				head = read_exactly(client_socket,1,timeout=5)[0]
-				server.logger.info(f"收到数据：[{hex(head)}]\"{head}\"")
+				server.logger.info(f"收到数据：[1]>[{hex(head)}]\"{head}\"")
 				#https://minecraft.wiki/w/Minecraft_Wiki:Projects/wiki.vg_merge/Server_List_Ping#1.6
 				if head == 0xFE:#1.6兼容协议，FE开头，强制匹配识别
 					#确认后两个是 01和fa
 					next2 = read_exactly(client_socket,2,timeout=5)
-					server.logger.info(f"收到数据：[{format_hex(next2)}]\"{next2}\"")
+					server.logger.info(f"收到数据：[2]>[{format_hex(next2)}]\"{next2}\"")
 					if next2[0] != 0x01 or next2[1] != 0xFA:
 						server.logger.warning("收到了意外的数据包")
 					#剩下直接丢弃不做处理
@@ -117,14 +117,15 @@ class FakeServerSocket:
 						client_socket.sendall(bytes([0xFF,0x00,0x00]))
 					break
 				elif head == 0x01:
-					if read_exactly(client_socket,1,timeout=5)[0] == 0x00:
+					next1 = read_exactly(client_socket,1,timeout=5)[0]
+					server.logger.info(f"收到数据：[1]>[{hex(next1)}]\"{next1}\"")
+					if next1 == 0x00:
 						server.logger.info("伪装服务器收到了binding")
 						if result == "ping_received":
 							server.logger.info("发送motd")
 							write_response(client_socket, self.motd)#发送motd
 					break
 				
-				server.logger.info("正在读取数据")
 				data = read_exactly(client_socket,head,timeout=5)#head当作length
 				server.logger.info(f"收到数据：[{len(data)}]>[{format_hex(data)}]\"{data}\"")
 				packetID,i = read_varint(data,0)
@@ -136,7 +137,7 @@ class FakeServerSocket:
 					self.handle_pong(client_socket,data,i,server)
 					break#断开连接
 				else:
-					server.logger.warning("收到了意外的数据包")
+					server.logger.warning("伪装服务器收到了意外的数据包")
 				break#此while
 			except TypeError as e:
 				server.logger.warning("伪装服务器收到了无效数据（类型错误）")
