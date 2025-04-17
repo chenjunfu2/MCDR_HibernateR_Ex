@@ -59,7 +59,8 @@ class TimerManager:
 
 			result = api.get_server_player_list(timeout=10.0)#延迟10s
 			if result is None:
-				server.logger.error("获取玩家列表失败！")
+				server.logger.error("获取玩家列表失败，跳过")
+				return
 			else:
 				player_list = list(map(str, result[2]))
 				whitelist, blacklist = filter_players(player_list, self.blacklist_player_patterns);
@@ -69,6 +70,6 @@ class TimerManager:
 				server.logger.info("检测到服务器无白名单玩家，尝试关闭服务器")
 				stop_server(server)#关闭服务器
 			else:
-				server.logger.info("服务器有白名单玩家，退出计时器")
+				server.logger.info("服务器有白名单玩家，跳过")
 		else:
 			server.logger.info("服务器未启动，跳过")
