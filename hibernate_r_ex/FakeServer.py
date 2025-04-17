@@ -43,7 +43,7 @@ class FakeServerSocket:
 
         #FS创建部分
         result = None
-        while result != "connection_request" and self.fs_stop == False:
+        while True:
             try:
                 self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, True)
@@ -55,36 +55,39 @@ class FakeServerSocket:
                 break#无法完成创建，退出
 
             #FS监听部分
-            while result != "connection_request" and self.fs_stop == False:
-                try:
-                    self.server_socket.listen(5)#最大允许连接数
-                    client_socket, client_address = self.server_socket.accept()
-                    server.logger.info(f"收到来自{client_address[0]}:{client_address[1]}的连接")
-                    recv_data = client_socket.recv(1024)
-                    client_ip = client_address[0]
-                    (length, i) = read_varint(recv_data, 0)
-                    (packetID, i) = read_varint(recv_data, i)
-                
-                    if packetID == 0:
-                        result = self.handle_ping(client_socket, recv_data, i, server)
-                    elif packetID == 1:
-                        self.handle_pong(client_socket, recv_data, i, server)
-                    else:
-                        server.logger.warning("收到了意外的数据包")
-                    break
-                except (TypeError, IndexError):
-                    server.logger.warning(f"[{client_ip}:{client_address[1]}]收到了无效数据({recv_data})")
-                    break#跳出
-                except socket.timeout:
-                    server.logger.debug("连接超时")
-                    continue#重试
-                except Exception as e:
-                    server.logger.error(f"发生错误: {ee}")
-                    break#跳出
-            #关闭链接
-            self.server_socket.close()
-            self.server_socket = None
+            try:
+                self.server_socket.listen(32)#最大允许连接数
+                while result != "connection_request" and self.fs_stop == False:
+                    try:
+                        client_socket, client_address = self.server_socket.accept()
+                        server.logger.info(f"收到来自{client_address[0]}:{client_address[1]}的连接")
+                        recv_data = client_socket.recv(1024)
+                        client_ip = client_address[0]
+                        (length, i) = read_varint(recv_data, 0)
+                        (packetID, i) = read_varint(recv_data, i)
+                    
+                        if packetID == 0:
+                            result = self.handle_ping(client_socket, recv_data, i, server)
+                        elif packetID == 1:
+                            self.handle_pong(client_socket, recv_data, i, server)
+                        else:
+                            server.logger.warning("收到了意外的数据包")
+                    except (TypeError, IndexError):
+                        server.logger.warning(f"[{client_ip}:{client_address[1]}]收到了无效数据({recv_data})")
+                    except socket.timeout:
+                        server.logger.debug("连接超时")
+                        continue#重试
+                    #操作完毕，关闭客户端链接，处理下一个
+                    client_socket.close()
+                    continue
+            except Exception as e:
+                server.logger.error(f"发生错误: {e}")
+                break
+        break#此while true只是用于方便break处理错误
     
+        #关闭socket
+        self.server_socket.close()
+
         #收到连接消息，开启服务器后退出
         if result == "connection_request":
             start_server(server)
