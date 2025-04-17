@@ -23,35 +23,43 @@ def read_exactly(sock, n, timeout=5):
             raise
     return bytes(data)
 
-def read_varint(sock):
+def sock_read_varint(sock):
     result = 0
     for i in range(5):
-        byte_in = read_exactly(sock,1,timeout=2)[0]
+        byte_in = read_exactly(sock,1,timeout=1)[0]
         result |= (byte_in & 0x7F) << (i * 7)
         if (byte_in & 0x80) != 0x80:
             break
     return result
-'''VarInt用于编码int类型，占1~5个字节，每个字节用低七位来编码数字。
-最高一位如果为1，表示还有下一字节。最高位为0，表示没有下一字节了。
-表示低有效位的字节排在前面，表示高有效位的字节排在后面。
-符号位无需单独处理，不把符号位看成符号位就行'''
+
+def read_varint(byte, i):
+    result = 0
+    bytes = 0
+    while True:
+        byte_in = byte[i]
+        i += 1
+        result |= (byte_in & 0x7F) << (bytes * 7)
+        if bytes > 32:
+            raise IOError("Packet is too long!")
+        if (byte_in & 0x80) != 0x80:
+            return result, i
 
 
-def read_utf(sock):
-    length = read_varint(sock)
-    byte = read_exactly(sock,length,timeout=5)
-    ip = byte.decode('utf-8')
-    return ip
+def read_utf(byte, i):
+    (length, i) = read_varint(byte, i)
+    ip = byte[i:(i + length)].decode('utf-8')
+    i += length
+    return ip, i
 
 
-def read_ushort(sock):
-    byte = read_exactly(sock,2,timeout=5)
-    return struct.unpack(">H", byte)[0]
+def read_ushort(byte, i):
+    new_i = i + 2
+    return struct.unpack(">H", byte[i:new_i])[0], new_i
 
 
-def read_long(sock):
-    byte = read_exactly(sock,8,timeout=5)
-    return struct.unpack(">q", byte)[0]
+def read_long(byte, i):
+    new_i = i + 8
+    return struct.unpack(">q", byte[i:new_i]), new_i
 
 
 def write_varint(byte, value):
@@ -75,4 +83,4 @@ def write_response(client_socket, response):
     write_utf(response_array, response)
     length = bytearray()
     write_varint(length, len(response_array))
-    client_socket.sendall(bytes(length) + bytes(response_array))
+    client_socket.sendall(bytes(length)+bytes(response_array))

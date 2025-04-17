@@ -10,151 +10,209 @@ from .byte_utils import *
 from .json import get_config
 
 class FakeServerSocket:
-    def __init__(self, server: PluginServerInterface):
-        self.config = get_config()
-        self.fs_icon = None
-        self.server_socket = None
-        self.fs_status = False
-        self.fs_stop = False
+	def __init__(self, server: PluginServerInterface):
+		self.config = get_config()
+		self.fs_icon = None
+		self.server_socket = None
+		self.fs_status = False
+		self.fs_stop = False
 
-        if not os.path.exists(self.config["server_icon"]):
-            server.logger.warning("未找到服务器图标，设置为None")
-        else:
-            with open(self.config["server_icon"], 'rb') as image:
-                self.fs_icon = "data:image/png;base64," + base64.b64encode(image.read()).decode()
+		if not os.path.exists(self.config["server_icon"]):
+			server.logger.warning("未找到服务器图标，设置为None")
+		else:
+			with open(self.config["server_icon"], 'rb') as image:
+				self.fs_icon = "data:image/png;base64," + base64.b64encode(image.read()).decode()
 
-        server.logger.info("伪装服务器初始化完成")
+		self.motd = {
+				"version": {"name": self.config["version_text"], "protocol": self.config["protocol"]},
+				"players": {"max": len(self.config["samples"]), "online": len(self.config["samples"]), "sample": [{"name": sample, "id": str(uuid.uuid4())} for sample in self.config["samples"]]},
+				"description": {"text": self.config["motd"]}
+			}
+		if self.fs_icon and len(self.fs_icon) > 0:
+			self.motd["favicon"] = self.fs_icon
 
-    @new_thread
-    def start(self, server: PluginServerInterface, start_server):
-        # 检查伪装服务器是否在运行
-        if self.fs_status == True:#已经启动了，返回
-            server.logger.info("伪装服务器正在运行")
-            return
-        
-        #检查服务器是否在运行
-        if server.is_server_running() or server.is_server_startup():
-            server.logger.info("服务器正在运行,请勿启动伪装服务器!")
-            return
+		self.motd = json.dumps(self.motd)
 
-         #设置标签
-        self.fs_status = True
-        server.logger.info("伪装服务器已启动")
+		server.logger.info("伪装服务器初始化完成")
 
-        #FS创建部分
-        result = None
-        while True:
-            try:
-                self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, True)
-                self.server_socket.bind((self.config["ip"], self.config["port"]))
-                self.server_socket.settimeout(5)#5s超时
-            except Exception as e:
-                server.logger.error(f"伪装服务器启动失败: {e}")
-                self.server_socket.close()
-                break#无法完成创建，退出
+	@new_thread
+	def start(self, server: PluginServerInterface, start_server):
+		# 检查伪装服务器是否在运行
+		if self.fs_status == True:#已经启动了，返回
+			server.logger.info("伪装服务器正在运行")
+			return
+		
+		#检查服务器是否在运行
+		if server.is_server_running() or server.is_server_startup():
+			server.logger.info("服务器正在运行,请勿启动伪装服务器!")
+			return
 
-            #FS监听部分
-            try:
-                self.server_socket.listen(32)#最大允许连接数
-                while result != "connection_request" and self.fs_stop == False:
-                    try:
-                        client_socket, client_address = self.server_socket.accept()
-                        server.logger.info(f"收到来自{client_address[0]}:{client_address[1]}的连接")
-                        length = read_varint(client_socket)
-                        packetID = read_varint(client_socket)
-                        
-                        if packetID == 0:
-                            result = self.handle_ping(client_socket, server)
-                        elif packetID == 1:
-                            self.handle_pong(client_socket, server)
-                        else:
-                            server.logger.warning("收到了意外的数据包")
-                    except (TypeError, IndexError):
-                        server.logger.warning("伪装服务器收到了无效数据")
-                    except ConnectionError:
-                        server.logger.warning("客户端提前断开连接")
-                    except socket.timeout:
-                        server.logger.debug("连接超时")
-                        continue#重试
-                    client_socket.close()
-                    continue#处理下一个
-            except Exception as e:
-                server.logger.error(f"发生错误: {e}")
-                break
-            break#此while true只是用于方便break处理错误
-    
-        #关闭socket
-        self.server_socket.close()
+		 #设置标签
+		self.fs_status = True
+		server.logger.info("伪装服务器已启动")
 
-        #收到连接消息，开启服务器后退出
-        if result == "connection_request":
-            start_server(server)
+		#FS创建部分
+		result = None
+		while True:
+			try:
+				self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+				self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, True)
+				self.server_socket.bind((self.config["ip"], self.config["port"]))
+				self.server_socket.settimeout(5)#5s超时
+			except Exception as e:
+				server.logger.error(f"伪装服务器启动失败: {e}")
+				self.server_socket.close()
+				break#无法完成创建，退出
 
-        #设置退出状态
-        self.server_socket = None
-        self.fs_stop = False
-        self.fs_status = False
+			#FS监听部分
+			try:
+				self.server_socket.listen(32)#最大允许连接数
+				while result != "connection_request" and self.fs_stop == False:
+					try:
+						client_socket, client_address = self.server_socket.accept()
+						server.logger.info(f"收到来自{client_address[0]}:{client_address[1]}的连接")
+						self.handle_packet(server,client_socket)
+					except socket.timeout:
+						server.logger.debug("连接超时")
+						continue#重试
+			except Exception as e:
+				server.logger.error(f"发生错误: {e}")
+				continue#重试
+			break#此while true只是用于方便break处理错误
+	
+		#关闭socket
+		self.server_socket.close()
 
-        server.logger.info("伪装服务器已退出") 
+		#收到连接消息，开启服务器后退出
+		if result == "connection_request":
+			start_server(server)
 
-    def handle_ping(self, client_socket, server: PluginServerInterface):
-        version = read_varint(client_socket)
-        ip = read_utf(client_socket)
-        ip = ip.replace('\x00', '').replace("\r", "\\r").replace("\t", "\\t").replace("\n", "\\n")
-        is_using_fml = False
-        if ip.endswith("FML"):
-            is_using_fml = True
-            ip = ip[:-3]
-        port = read_ushort(client_socket)
-        state = read_varint(client_socket)
-        if state == 1:
-            server.logger.info("伪装服务器收到了一次ping")
-            motd = {
-                "version": {"name": self.config["version_text"], "protocol": self.config["protocol"]},
-                "players": {"max": len(self.config["samples"]), "online": len(self.config["samples"]), "sample": [{"name": sample, "id": str(uuid.uuid4())} for sample in self.config["samples"]]},
-                "description": {"text": self.config["motd"]}
-            }
-            if self.fs_icon and len(self.fs_icon) > 0:
-                motd["favicon"] = self.fs_icon
-            write_response(client_socket, json.dumps(motd))
-            return "ping_received"
-        elif state == 2:
-            server.logger.info("伪装服务器收到了一次连接请求")
-            write_response(client_socket, json.dumps({"text": self.config["kick_message"]}))
-            self.stop(server)
-            server.logger.info("启动服务器")
-            return "connection_request"
+		#设置退出状态
+		self.server_socket = None
+		self.fs_stop = False
+		self.fs_status = False
 
-    def handle_pong(self, client_socket, server: PluginServerInterface):
-        long = read_long(client_socket)
-        response = bytearray()
-        write_varint(response, 9)
-        write_varint(response, 1)
-        response.append(long)
-        client_socket.sendall(bytearray)
-        server.logger.info("Responded with pong packet.")
+		server.logger.info("伪装服务器已退出") 
+
+	def handle_packet(self,server: PluginServerInterface,client_socket):
+		while True:
+			try:
+				#https://minecraft.wiki/w/Java_Edition_protocol#Handshaking
+				length = sock_read_varint(client_socket)
+				
+				#https://minecraft.wiki/w/Minecraft_Wiki:Projects/wiki.vg_merge/Server_List_Ping#1.6
+				if length == 0xFE:#1.6兼容协议，FE开头，强制匹配识别
+					server.logger.info(f"收到数据：[{format_hex(length)}]\"{length}\"")
+					#确认后两个是 01和fa
+					next2 = read_exactly(client_socket,2,timeout=5)
+					if next2[0] != 0x01 or next2[1] != 0xFA:
+						server.logger.warning("收到了意外的数据包")
+					#剩下直接丢弃不做处理
+					else:
+						server.logger.info("伪装服务器收到了一次1.6-ping")
+						#以踢出数据包响应客户端，长度直接设为0，不给出任何信息
+						client_socket.sendall([0xFF,0x00,0x00])
+					break
+				elif length == 0x01:
+					if read_exactly(client_socket,2,timeout=5)[0] == 0x00:
+						server.logger.info("伪装服务器收到了binding")
+					break
+				
+				server.logger.info("正在读取数据")
+				data = read_exactly(client_socket,length,timeout=5)
+				server.logger.info(f"收到数据：[{len(data)}]>[{format_hex(data)}]\"{data}\"")
+				packetID,i = read_varint(data,0)
+				
+				if packetID == 0x00:
+					result = self.handle_ping(client_socket,data,i,server)
+				elif packetID == 0x01:
+					self.handle_pong(client_socket,data,i,server)
+				else:
+					server.logger.warning("收到了意外的数据包")
+					continue#重试
+			except TypeError:
+				server.logger.warning("伪装服务器收到了无效数据（类型错误）")
+				break#此while
+			except IndexError:
+				server.logger.warning("伪装服务器收到了无效数据（索引溢出）")
+				break#此while
+			except ConnectionError:
+				server.logger.warning("客户端提前断开连接")
+				break#此while
+			except socket.timeout:
+				server.logger.debug("连接超时")
+				break#此while
+		#关闭退出
+		client_socket.close()
+		return
 
 
-    def stop(self, server: PluginServerInterface):
-        if self.fs_status == False:
-            server.logger.info("伪装服务器已是关闭状态")
-            return False
+	def handle_ping(self, client_socket,data,i, server: PluginServerInterface):
+		version,i = read_varint(data,i)
+		ip,i = read_utf(data,i)
+		ip = ip.replace('\x00', '').replace("\r", "\\r").replace("\t", "\\t").replace("\n", "\\n")
+		is_using_fml = False
+		if ip.endswith("FML"):
+			is_using_fml = True
+			ip = ip[:-3]
+		port,i = read_ushort(data,i)
+		state,i = read_varint(data,i)
+		if state == 0x01:
+			server.logger.info("伪装服务器收到了一次ping")
+			#https://minecraft.wiki/w/Minecraft_Wiki:Projects/wiki.vg_merge/Server_List_Ping#Current_(1.7+)
+			write_response(client_socket, self.motd)
+			return "ping_received"
+		elif state == 0x02:
+			server.logger.info("伪装服务器收到了一次连接请求")
+			write_response(client_socket, json.dumps({"text": self.config["kick_message"]}))
+			self.stop(server)
+			server.logger.info("启动服务器")
+			return "connection_request"
+
+	def handle_pong(self, client_socket,data,i, server: PluginServerInterface):
+		server.logger.info("伪装服务器收到了一次pong")
+		rlong = read_long(data,i)
+		#https://minecraft.wiki/w/Java_Edition_protocol#Pong_Response_(status)
+		response = bytearray()
+		write_varint(response, 9)
+		write_varint(response, 1)
+		response.append(rlong)
+		client_socket.sendall(response)
+
+	def stop(self, server: PluginServerInterface):
+		if self.fs_status == False:
+			server.logger.info("伪装服务器已是关闭状态")
+			return False
   
-        self.fs_stop = True#提醒服务器应该关闭
-        server.logger.info("正在关闭伪装服务器")
-        #设置时间
-        count = 6#比socket timeout多1
-        while self.fs_status == True:#等待服务器关闭
-            if count == 0:
-                server.logger.error("关闭伪装服务器失败: 等待超时")
-                return False
-            count = count - 1
-            time.sleep(1)
+		self.fs_stop = True#提醒服务器应该关闭
+		server.logger.info("正在关闭伪装服务器")
+		#设置时间
+		count = 6#比socket timeout多1
+		while self.fs_status == True:#等待服务器关闭
+			if count == 0:
+				server.logger.error("关闭伪装服务器失败: 等待超时")
+				return False
+			count = count - 1
+			time.sleep(1)
 
-        if self.server_socket:
-            server.logger.info("等待超时")
-            return False
-        else:
-            server.logger.info("伪装服务器已关闭")
-            return True
+		if self.server_socket:
+			server.logger.info("等待超时")
+			return False
+		else:
+			server.logger.info("伪装服务器已关闭")
+			return True
+
+def format_hex(data, sep=' ', prefix='', case='upper'):
+	"""
+	格式化字节数组为十六进制字符串
+	参数：
+		data: bytes/bytearray 原始二进制数据
+		sep: 分隔符 (默认空格)
+		prefix: 前缀 (如 '0x', '$' 等)
+		case: 大小写控制 ('upper'/'lower')
+	"""
+	if len(data) == 0:
+		return ""
+	case = case.lower()
+	fmt = f"{{:{prefix}02{'X' if case=='upper' else 'x'}}}"
+	return sep.join(fmt.format(b) for b in data)
