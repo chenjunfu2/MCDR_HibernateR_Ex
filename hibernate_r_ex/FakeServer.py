@@ -71,7 +71,9 @@ class FakeServerSocket:
                         else:
                             server.logger.warning("收到了意外的数据包")
                     except (TypeError, IndexError):
-                        server.logger.warning(f"伪装服务器收到了无效数据")
+                        server.logger.warning("伪装服务器收到了无效数据")
+                    except ConnectionError:
+                        server.logger.warning("客户端提前断开连接")
                     except socket.timeout:
                         server.logger.debug("连接超时")
                         continue#重试
