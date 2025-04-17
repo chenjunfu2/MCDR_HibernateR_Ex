@@ -67,25 +67,22 @@ class FakeServerSocket:
 			#FS监听部分
 			try:
 				self.server_socket.listen(32)#最大允许连接数
-				while result != "connection_request" and self.fs_stop == False:
+				while self.fs_stop == False:
 					try:
 						client_socket, client_address = self.server_socket.accept()
 						server.logger.info(f"收到来自{client_address[0]}:{client_address[1]}的连接")
-						self.handle_packet(server,client_socket)
+						result = self.handle_packet(server,client_socket)
 					except socket.timeout:
-						server.logger.debug("连接超时")
+						server.logger.debug("连接超时")#此处超时处理accept
 						continue#重试
 			except Exception as e:
-				server.logger.error(f"发生错误: {e}")
+				server.logger.error(f"发生其它错误: {e}")
+				server.logger.error((f'error file:{e.__traceback__.tb_frame.f_globals["__file__"]} line:{e.__traceback__.tb_lineno}'))
 				continue#重试
 			break#此while true只是用于方便break处理错误
 	
 		#关闭socket
 		self.server_socket.close()
-
-		#收到连接消息，开启服务器后退出
-		if result == "connection_request":
-			start_server(server)
 
 		#设置退出状态
 		self.server_socket = None
@@ -94,60 +91,81 @@ class FakeServerSocket:
 
 		server.logger.info("伪装服务器已退出") 
 
+		#收到连接消息，开启服务器后退出
+		if result == "connection_request":
+			start_server(server)
+
+
 	def handle_packet(self,server: PluginServerInterface,client_socket):
-		while True:
+		result = None
+		while self.fs_stop == False:
 			try:
 				#https://minecraft.wiki/w/Java_Edition_protocol#Handshaking
-				length = sock_read_varint(client_socket)
-				
+				head = read_exactly(client_socket,1,timeout=5)[0]
+				server.logger.info(f"收到数据：[{hex(head)}]\"{head}\"")
 				#https://minecraft.wiki/w/Minecraft_Wiki:Projects/wiki.vg_merge/Server_List_Ping#1.6
-				if length == 0xFE:#1.6兼容协议，FE开头，强制匹配识别
-					server.logger.info(f"收到数据：[{format_hex(length)}]\"{length}\"")
+				if head == 0xFE:#1.6兼容协议，FE开头，强制匹配识别
 					#确认后两个是 01和fa
 					next2 = read_exactly(client_socket,2,timeout=5)
+					server.logger.info(f"收到数据：[{format_hex(next2)}]\"{next2}\"")
 					if next2[0] != 0x01 or next2[1] != 0xFA:
 						server.logger.warning("收到了意外的数据包")
 					#剩下直接丢弃不做处理
 					else:
 						server.logger.info("伪装服务器收到了一次1.6-ping")
 						#以踢出数据包响应客户端，长度直接设为0，不给出任何信息
-						client_socket.sendall([0xFF,0x00,0x00])
+						client_socket.sendall(bytes([0xFF,0x00,0x00]))
 					break
-				elif length == 0x01:
-					if read_exactly(client_socket,2,timeout=5)[0] == 0x00:
+				elif head == 0x01:
+					if read_exactly(client_socket,1,timeout=5)[0] == 0x00:
 						server.logger.info("伪装服务器收到了binding")
+						if result == "ping_received":
+							server.logger.info("发送motd")
+							write_response(client_socket, self.motd)#发送motd
 					break
 				
 				server.logger.info("正在读取数据")
-				data = read_exactly(client_socket,length,timeout=5)
+				data = read_exactly(client_socket,head,timeout=5)#head当作length
 				server.logger.info(f"收到数据：[{len(data)}]>[{format_hex(data)}]\"{data}\"")
 				packetID,i = read_varint(data,0)
 				
 				if packetID == 0x00:
-					result = self.handle_ping(client_socket,data,i,server)
+					result = self.handle_ping(client_socket,data,i,server,result)
+					continue#重试
 				elif packetID == 0x01:
 					self.handle_pong(client_socket,data,i,server)
+					break#断开连接
 				else:
 					server.logger.warning("收到了意外的数据包")
-					continue#重试
-			except TypeError:
-				server.logger.warning("伪装服务器收到了无效数据（类型错误）")
 				break#此while
-			except IndexError:
+			except TypeError as e:
+				server.logger.warning("伪装服务器收到了无效数据（类型错误）")
+				server.logger.warning((f'error file:{e.__traceback__.tb_frame.f_globals["__file__"]} line:{e.__traceback__.tb_lineno}'))
+				break#此while
+			except IndexError as e:
 				server.logger.warning("伪装服务器收到了无效数据（索引溢出）")
+				server.logger.warning((f'error file:{e.__traceback__.tb_frame.f_globals["__file__"]} line:{e.__traceback__.tb_lineno}'))
 				break#此while
 			except ConnectionError:
 				server.logger.warning("客户端提前断开连接")
 				break#此while
 			except socket.timeout:
-				server.logger.debug("连接超时")
+				server.logger.debug("连接超时")#此处超时处理read_exactly
 				break#此while
 		#关闭退出
 		client_socket.close()
-		return
+		server.logger.info("断开链接")
+		return result
 
 
-	def handle_ping(self, client_socket,data,i, server: PluginServerInterface):
+	def handle_ping(self, client_socket,data,i, server: PluginServerInterface,result):
+		if result == "connection_request":#链接请求，响应踢出消息，然后关闭伪服务端并启动服务器
+			#https://minecraft.wiki/w/Java_Edition_protocol#Login_Start
+			#不读取，忽略信息(2字节玩家名长度，然后是玩家名，接着是其他数据(uuid))
+			write_response(client_socket, json.dumps({"text": self.config["kick_message"]}))
+			self.fs_stop = True#提醒服务器应该关闭
+			return "connection_request"
+
 		version,i = read_varint(data,i)
 		ip,i = read_utf(data,i)
 		ip = ip.replace('\x00', '').replace("\r", "\\r").replace("\t", "\\t").replace("\n", "\\n")
@@ -160,13 +178,9 @@ class FakeServerSocket:
 		if state == 0x01:
 			server.logger.info("伪装服务器收到了一次ping")
 			#https://minecraft.wiki/w/Minecraft_Wiki:Projects/wiki.vg_merge/Server_List_Ping#Current_(1.7+)
-			write_response(client_socket, self.motd)
 			return "ping_received"
 		elif state == 0x02:
 			server.logger.info("伪装服务器收到了一次连接请求")
-			write_response(client_socket, json.dumps({"text": self.config["kick_message"]}))
-			self.stop(server)
-			server.logger.info("启动服务器")
 			return "connection_request"
 
 	def handle_pong(self, client_socket,data,i, server: PluginServerInterface):
@@ -182,7 +196,7 @@ class FakeServerSocket:
 	def stop(self, server: PluginServerInterface):
 		if self.fs_status == False:
 			server.logger.info("伪装服务器已是关闭状态")
-			return False
+			return True
   
 		self.fs_stop = True#提醒服务器应该关闭
 		server.logger.info("正在关闭伪装服务器")
@@ -211,8 +225,6 @@ def format_hex(data, sep=' ', prefix='', case='upper'):
 		prefix: 前缀 (如 '0x', '$' 等)
 		case: 大小写控制 ('upper'/'lower')
 	"""
-	if len(data) == 0:
-		return ""
 	case = case.lower()
 	fmt = f"{{:{prefix}02{'X' if case=='upper' else 'x'}}}"
 	return sep.join(fmt.format(b) for b in data)

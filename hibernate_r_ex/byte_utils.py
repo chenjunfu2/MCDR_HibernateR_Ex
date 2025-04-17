@@ -23,23 +23,14 @@ def read_exactly(sock, n, timeout=5):
             raise
     return bytes(data)
 
-def sock_read_varint(sock):
-    result = 0
-    for i in range(5):
-        byte_in = read_exactly(sock,1,timeout=1)[0]
-        result |= (byte_in & 0x7F) << (i * 7)
-        if (byte_in & 0x80) != 0x80:
-            break
-    return result
-
 def read_varint(byte, i):
     result = 0
-    bytes = 0
+    bytes_ = 0
     while True:
         byte_in = byte[i]
         i += 1
-        result |= (byte_in & 0x7F) << (bytes * 7)
-        if bytes > 32:
+        result |= (byte_in & 0x7F) << (bytes_ * 7)
+        if bytes_ > 32:
             raise IOError("Packet is too long!")
         if (byte_in & 0x80) != 0x80:
             return result, i

@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import time
+import re
 
 from mcdreforged.api.all import *
 from .byte_utils import *
@@ -36,7 +37,7 @@ def on_load(server: PluginServerInterface, prev_module):
 
     # 构建命令树
     builder = SimpleCommandBuilder()
-    builder.command('!!hr timer start', lambda src: timer_manager.start_timer(src.get_server(), stop_server))
+    builder.command('!!hr timer start', lambda src: timer_manager.start_timer(src.get_server(), test_stop_server))
     builder.command('!!hr timer stop', lambda src: timer_manager.cancel_timer(src.get_server()))
     builder.command('!!hr sleep', lambda src: hr_sleep(src.get_server()))
     builder.command('!!hr sleep fs', lambda src: fake_server_socket.stop(src.get_server()))
@@ -50,7 +51,7 @@ def on_load(server: PluginServerInterface, prev_module):
     if server.is_server_running() or server.is_server_startup():
         wish_server_status = True
         server.logger.info("服务器正在运行，启动计时器")
-        timer_manager.start_timer(server, stop_server)#启动时间事件
+        timer_manager.start_timer(server, test_stop_server)#启动时间事件
     else:
         server.logger.info("无法确认服务器状态，请手动启动伪装服务器")
 
@@ -92,7 +93,7 @@ def on_server_startup(server: PluginServerInterface):
     global wish_server_status
     wish_server_status = True
     global timer_manager
-    timer_manager.start_timer(server, stop_server)#启动事件
+    timer_manager.start_timer(server, test_stop_server)#启动事件
     server.logger.info("事件：服务器启动")
 
 @new_thread
@@ -117,3 +118,28 @@ def start_server(server: PluginServerInterface):
     global wish_server_status
     wish_server_status = True
     server.start()
+
+def on_info(server: PluginServerInterface, info: Info) -> None:
+	if info.is_from_server:
+		if (m := re.compile(r'(?P<name>[^\[]+)\[(?P<ip>.*?)\] logged in with entity id \d+ at \(.+\)').fullmatch(info.content)) is not None:
+			player_joined(server, m['name'], m['ip'])
+		if (m := re.compile(r'(?P<name>[^ ]+) left the game').fullmatch(info.content)) is not None:
+			player_left(server, m['name'])
+
+def player_joined(server, player, ip):
+    server.logger.info(player + " [" + ip + "] join")
+    if ip == "local":#is_bot
+        server.logger.info("ip[local]为假人玩家，跳过")
+        return
+    #取消定时器
+    timer_manager.cancel_timer(server)
+
+def player_left(server, player):
+    server.logger.info(player + " left")
+    #启动定时器
+    timer_manager.start_timer(server,test_stop_server)
+
+#如果在start_timer内调用test_stop_server，这说明当前无玩家，重启一次定时器事件，这次为真实的停服函数
+def test_stop_server(server: PluginServerInterface):
+    server.logger.info("虚拟停服被调用，启动真实停服定时器")
+    timer_manager.start_timer(server,stop_server)#只有在这里调用真实处理
