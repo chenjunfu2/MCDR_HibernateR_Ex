@@ -66,7 +66,6 @@ class FakeServerSocket:
                         
                         if packetID == 0:
                             result = self.handle_ping(client_socket, server)
-                            server.logger.info(result)
                         elif packetID == 1:
                             self.handle_pong(client_socket, server)
                         else:
