@@ -61,29 +61,27 @@ class FakeServerSocket:
                     try:
                         client_socket, client_address = self.server_socket.accept()
                         server.logger.info(f"收到来自{client_address[0]}:{client_address[1]}的连接")
-                        recv_data = client_socket.recv(1024)
-                        client_ip = client_address[0]
-                        (length, i) = read_varint(recv_data, 0)
-                        (packetID, i) = read_varint(recv_data, i)
-                    
+                        length = read_varint(client_socket)
+                        packetID = read_varint(client_socket)
+                        
                         if packetID == 0:
-                            result = self.handle_ping(client_socket, recv_data, i, server)
+                            result = self.handle_ping(client_socket, server)
+                            server.logger.info(result)
                         elif packetID == 1:
-                            self.handle_pong(client_socket, recv_data, i, server)
+                            self.handle_pong(client_socket, server)
                         else:
                             server.logger.warning("收到了意外的数据包")
                     except (TypeError, IndexError):
-                        server.logger.warning(f"[{client_ip}:{client_address[1]}]收到了无效数据({recv_data})")
+                        server.logger.warning(f"伪装服务器收到了无效数据")
                     except socket.timeout:
                         server.logger.debug("连接超时")
                         continue#重试
-                    #操作完毕，关闭客户端链接，处理下一个
                     client_socket.close()
-                    continue
+                    continue#处理下一个
             except Exception as e:
                 server.logger.error(f"发生错误: {e}")
                 break
-        break#此while true只是用于方便break处理错误
+            break#此while true只是用于方便break处理错误
     
         #关闭socket
         self.server_socket.close()
@@ -99,18 +97,18 @@ class FakeServerSocket:
 
         server.logger.info("伪装服务器已退出") 
 
-    def handle_ping(self, client_socket, recv_data, i, server: PluginServerInterface):
-        (version, i) = read_varint(recv_data, i)
-        (ip, i) = read_utf(recv_data, i)
+    def handle_ping(self, client_socket, server: PluginServerInterface):
+        version = read_varint(client_socket)
+        ip = read_utf(client_socket)
         ip = ip.replace('\x00', '').replace("\r", "\\r").replace("\t", "\\t").replace("\n", "\\n")
         is_using_fml = False
         if ip.endswith("FML"):
             is_using_fml = True
             ip = ip[:-3]
-        (port, i) = read_ushort(recv_data, i)
-        (state, i) = read_varint(recv_data, i)
+        port = read_ushort(client_socket)
+        state = read_varint(client_socket)
         if state == 1:
-            server.logger.info("伪装服务器收到了一次ping: %s" % (recv_data))
+            server.logger.info("伪装服务器收到了一次ping")
             motd = {
                 "version": {"name": self.config["version_text"], "protocol": self.config["protocol"]},
                 "players": {"max": len(self.config["samples"]), "online": len(self.config["samples"]), "sample": [{"name": sample, "id": str(uuid.uuid4())} for sample in self.config["samples"]]},
@@ -121,14 +119,14 @@ class FakeServerSocket:
             write_response(client_socket, json.dumps(motd))
             return "ping_received"
         elif state == 2:
-            server.logger.info("伪装服务器收到了一次连接请求: %s" % (recv_data))
+            server.logger.info("伪装服务器收到了一次连接请求")
             write_response(client_socket, json.dumps({"text": self.config["kick_message"]}))
             self.stop(server)
             server.logger.info("启动服务器")
             return "connection_request"
 
-    def handle_pong(self, client_socket, recv_data, i, server: PluginServerInterface):
-        (long, i) = read_long(recv_data, i)
+    def handle_pong(self, client_socket, server: PluginServerInterface):
+        long = read_long(client_socket)
         response = bytearray()
         write_varint(response, 9)
         write_varint(response, 1)
