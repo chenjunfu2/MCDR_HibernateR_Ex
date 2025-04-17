@@ -40,6 +40,7 @@ class TimerManager:
 
     def _cancel_timer_impl(self, server: PluginServerInterface):
         #取消定时循环
+        self.re_test = False#重置
         if self.current_timer is not None:
             self.current_timer.cancel()
             self.current_timer = None
