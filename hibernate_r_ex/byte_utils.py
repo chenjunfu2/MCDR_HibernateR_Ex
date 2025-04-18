@@ -25,13 +25,11 @@ def read_exactly(sock, n, timeout=5):
 
 def read_varint(byte, i):
     result = 0
-    bytes_ = 0
-    while True:
-        byte_in = byte[i]
-        i += 1
-        result |= (byte_in & 0x7F) << (bytes_ * 7)
-        if bytes_ > 32:
+    for i in range(6):
+        if i >= 5:#i在0~4共5个索引内，一共能读出5*7=35个bits，刚好大于32，如果再多则varint出错，抛出异常
             raise IOError("Packet is too long!")
+        byte_in = byte[i]
+        result |= (byte_in & 0x7F) << (i * 7)
         if (byte_in & 0x80) != 0x80:
             return result, i
 
