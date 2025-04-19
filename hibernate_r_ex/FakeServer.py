@@ -92,7 +92,7 @@ class FakeServerSocket:
 		server.logger.info("伪装服务器已退出") 
 
 		#收到连接消息，开启服务器后退出
-		if result == "connection_request":
+		if result == "login_request":
 			start_server(server)
 
 
@@ -110,9 +110,10 @@ class FakeServerSocket:
 					server.logger.info(f"收到数据：[2]>[{format_hex(next2)}]\"{next2}\"")
 					if next2[0] != 0x01 or next2[1] != 0xFA:
 						server.logger.warning("收到了意外的数据包")
-					#剩下直接丢弃不做处理
+						break#剩下直接丢弃并断开连接
 					else:
 						server.logger.info("伪装服务器收到了一次1.6-ping")
+						server.logger.info("发送空响应")
 						#以踢出数据包响应客户端，长度直接设为0，不给出任何信息
 						client_socket.sendall(bytes([0xFF,0x00,0x00]))
 					break
@@ -121,19 +122,21 @@ class FakeServerSocket:
 					server.logger.info(f"收到数据：[1]>[{hex(next1)}]\"{next1}\"")
 					if next1 == 0x00:
 						server.logger.info("伪装服务器收到了binding")
-						if result == "ping_received":
+						if result == "status_request":
 							server.logger.info("发送motd")
 							write_response(client_socket, self.motd)#发送motd
 					break
 				
 				data = read_exactly(client_socket,head,timeout=5)#head当作length
 				server.logger.info(f"收到数据：[{len(data)}]>[{format_hex(data)}]\"{data}\"")
-				packetID,i = read_varint(data,0)
+				packet_id, i = read_byte(data,0)
 				
-				if packetID == 0x00:
+				if packet_id == 0x00:
 					result = self.handle_ping(client_socket,data,i,server,result)
+					if result == "unknown_request":#未知请求则跳出断开连接
+						break
 					continue#重试
-				elif packetID == 0x01:
+				elif packet_id == 0x01:
 					self.handle_pong(client_socket,data,i,server)
 					break#断开连接
 				else:
@@ -141,11 +144,11 @@ class FakeServerSocket:
 				break#此while
 			except TypeError as e:
 				server.logger.warning("伪装服务器收到了无效数据（类型错误）")
-				server.logger.warning((f'error file:{e.__traceback__.tb_frame.f_globals["__file__"]} line:{e.__traceback__.tb_lineno}'))
+				server.logger.warning(f'error file:{e.__traceback__.tb_frame.f_globals["__file__"]} line:{e.__traceback__.tb_lineno}')
 				break#此while
 			except IndexError as e:
 				server.logger.warning("伪装服务器收到了无效数据（索引溢出）")
-				server.logger.warning((f'error file:{e.__traceback__.tb_frame.f_globals["__file__"]} line:{e.__traceback__.tb_lineno}'))
+				server.logger.warning(f'error file:{e.__traceback__.tb_frame.f_globals["__file__"]} line:{e.__traceback__.tb_lineno}')
 				break#此while
 			except ConnectionError:
 				server.logger.warning("客户端提前断开连接")
@@ -160,29 +163,36 @@ class FakeServerSocket:
 
 
 	def handle_ping(self, client_socket,data,i, server: PluginServerInterface,result):
-		if result == "connection_request":#链接请求，响应踢出消息，然后关闭伪服务端并启动服务器
+		if result == "login_request":#链接请求，响应踢出消息，然后关闭伪服务端并启动服务器
 			#https://minecraft.wiki/w/Java_Edition_protocol#Login_Start
 			#不读取，忽略信息(2字节玩家名长度，然后是玩家名，接着是其他数据(uuid))
 			write_response(client_socket, json.dumps({"text": self.config["kick_message"]}))
 			self.fs_stop = True#提醒服务器应该关闭
-			return "connection_request"
+			return "login_request"
 
 		version,i = read_varint(data,i)
-		ip,i = read_utf(data,i)
-		ip = ip.replace('\x00', '').replace("\r", "\\r").replace("\t", "\\t").replace("\n", "\\n")
+		ip,i = read_str(data,i)
+		ip = ip.replace('\x00', '\\0').replace("\r", "\\r").replace("\t", "\\t").replace("\n", "\\n")
 		is_using_fml = False
 		if ip.endswith("FML"):
 			is_using_fml = True
 			ip = ip[:-3]
 		port,i = read_ushort(data,i)
-		state,i = read_varint(data,i)
-		if state == 0x01:
-			server.logger.info("伪装服务器收到了一次ping")
+		state,i = read_byte(data,i)
+		server.logger.info(f"数据解析：version:[{version}], ip:[{ip}], port:[{port}], state:[{hex(state)}], FML:[{is_using_fml}]")
+		if state == 0x01:# Status
+			server.logger.info("伪装服务器收到了一次状态请求")
 			#https://minecraft.wiki/w/Minecraft_Wiki:Projects/wiki.vg_merge/Server_List_Ping#Current_(1.7+)
-			return "ping_received"
-		elif state == 0x02:
-			server.logger.info("伪装服务器收到了一次连接请求")
-			return "connection_request"
+			return "status_request"
+		elif state == 0x02:# Login
+			server.logger.info("伪装服务器收到了一次登录请求")
+			return "login_request"
+		elif state == 0x03:# Transfer
+			server.logger.info("伪装服务器收到了一次转移请求")
+			return "transfer_request"
+		else:
+			server.logger.info("伪装服务器收到了一次未知请求")
+			return "unknown_request"
 
 	def handle_pong(self, client_socket,data,i, server: PluginServerInterface):
 		server.logger.info("伪装服务器收到了一次pong")
