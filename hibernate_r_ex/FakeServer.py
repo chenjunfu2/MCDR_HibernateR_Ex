@@ -196,7 +196,7 @@ class FakeServerSocket:
         server.logger.info("伪装服务器收到了一次ping")
         #https://minecraft.wiki/w/Java_Edition_protocol#Pong_Response_(status)
         long_data, i = read_long(data, i)
-        logger.info(f"数据解析：long_data[{long_data}]")
+        server.logger.info(f"数据解析：long_data[{long_data}]")
         
         response = bytearray()
         write_varint(response, 9)
