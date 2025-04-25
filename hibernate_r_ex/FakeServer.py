@@ -7,7 +7,6 @@ import uuid
 import traceback
 
 from mcdreforged.api.all import *
-from sqlalchemy import false
 
 from .byte_utils import *
 from .json import get_config
