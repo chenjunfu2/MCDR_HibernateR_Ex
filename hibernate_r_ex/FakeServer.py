@@ -117,7 +117,7 @@ class FakeServerSocket:
                         #以踢出数据包响应客户端，长度直接设为0，不给出任何信息
                         client_socket.sendall(bytes([0xFF,0x00,0x00]))
                     break
-                elif head == 0x01:
+                elif head == 0x01:#binding
                     next1 = read_exactly(client_socket,1,timeout=5)[0]
                     server.logger.info(f"收到数据：[1]>[{hex(next1)}]\"{next1}\"")
                     if next1 == 0x00:
@@ -125,6 +125,7 @@ class FakeServerSocket:
                         if result == "status_request":
                             server.logger.info("发送motd")
                             write_response(client_socket, self.motd)#发送motd
+                            continue #处理一次ping和pong
                     break
                 
                 data = read_exactly(client_socket,head,timeout=5)#head当作length
@@ -132,12 +133,12 @@ class FakeServerSocket:
                 packet_id, i = read_byte(data,0)
                 
                 if packet_id == 0x00:
-                    result = self.handle_ping(client_socket,data,i,server,result)
+                    result = self.handle_handshaking(client_socket,data,i,server,result)
                     if result == "unknown_request":#未知请求则跳出断开连接
                         break
                     continue#重试
                 elif packet_id == 0x01:
-                    self.handle_pong(client_socket,data,i,server)
+                    self.handle_ping(client_socket,data,i,server)
                     break#断开连接
                 else:
                     server.logger.warning("伪装服务器收到了意外的数据包")
@@ -162,7 +163,7 @@ class FakeServerSocket:
         return result
 
 
-    def handle_ping(self, client_socket,data,i, server: PluginServerInterface,result):
+    def handle_handshaking(self, client_socket,data,i, server: PluginServerInterface,result):
         if result == "login_request":#链接请求，响应踢出消息，然后关闭伪服务端并启动服务器
             #https://minecraft.wiki/w/Java_Edition_protocol#Login_Start
             #不读取，忽略信息(2字节玩家名长度，然后是玩家名，接着是其他数据(uuid))
@@ -190,14 +191,14 @@ class FakeServerSocket:
             server.logger.info("伪装服务器收到了一次未知请求")
             return "unknown_request"
 
-    def handle_pong(self, client_socket,data,i, server: PluginServerInterface):
+    def handle_ping(self, client_socket,data,i, server: PluginServerInterface):
         server.logger.info("伪装服务器收到了一次pong")
-        rlong = read_long(data,i)
+        pong_data = read_long(data,i)
         #https://minecraft.wiki/w/Java_Edition_protocol#Pong_Response_(status)
         response = bytearray()
         write_varint(response, 9)
         write_varint(response, 1)
-        response.append(rlong)
+        write_long(response, pong_data)
         client_socket.sendall(response)
 
     def stop(self, server: PluginServerInterface):

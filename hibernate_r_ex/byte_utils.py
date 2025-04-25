@@ -67,14 +67,23 @@ def write_varint(byte, value):
             break
 
 
+def write_byte(byte: bytearray, value):
+    byte.append(value & 0xff)
+
+def write_ushort(byte: bytearray, value):
+    byte += struct.pack(">H", value)
+
+def write_long(byte: bytearray, value):
+    byte += struct.pack(">q", value)
+
 def write_utf(byte, value):
     write_varint(byte, len(value))
     byte.extend(value.encode('utf-8'))
 
 def write_response(client_socket, response):
     response_array = bytearray()
-    write_varint(response_array, 0)
+    write_byte(response_array, 0x00)
     write_utf(response_array, response)
     length = bytearray()
     write_varint(length, len(response_array))
-    client_socket.sendall(bytes(length)+bytes(response_array))
+    client_socket.sendall(bytes(length) + bytes(response_array))
