@@ -60,7 +60,7 @@ def on_load(server: PluginServerInterface, prev_module):
         server.logger.info("服务器正在运行，启动计时器")
         timer_manager.start_timer(server, test_stop_server)#启动时间事件
     else:
-        server.logger.info("无法确认服务器状态，请手动启动伪装服务器")
+        server.logger.warning("无法确认服务器状态，请手动启动伪装服务器")
 
 
 def on_unload(server: PluginServerInterface):

@@ -4,8 +4,11 @@ import json
 import os.path
 import base64
 import uuid
+import traceback
 
 from mcdreforged.api.all import *
+from sqlalchemy import false
+
 from .byte_utils import *
 from .json import get_config
 
@@ -76,8 +79,7 @@ class FakeServerSocket:
                         server.logger.debug("连接超时")#此处超时处理accept
                         continue#重试
             except Exception as e:
-                server.logger.error(f"发生其它错误: {e}")
-                server.logger.error((f'error file:{e.__traceback__.tb_frame.f_globals["__file__"]} line:{e.__traceback__.tb_lineno}'))
+                server.logger.error(f"发生其它错误: {traceback.format_exc()}")
                 continue#重试
             break#此while true只是用于方便break处理错误
     
@@ -98,6 +100,7 @@ class FakeServerSocket:
 
     def handle_packet(self,server: PluginServerInterface,client_socket):
         result = None
+        binding = False
         while self.fs_stop == False:
             try:
                 #https://minecraft.wiki/w/Java_Edition_protocol#Handshaking
@@ -120,11 +123,12 @@ class FakeServerSocket:
                 elif head == 0x01:#binding
                     next1 = read_exactly(client_socket,1,timeout=5)[0]
                     server.logger.info(f"收到数据：[1]>[{hex(next1)}]\"{next1}\"")
-                    if next1 == 0x00:
+                    if next1 == 0x00 and not binding:
                         server.logger.info("伪装服务器收到了binding")
                         if result == "status_request":
                             server.logger.info("发送motd")
                             write_response(client_socket, self.motd)#发送motd
+                            binding = True#已绑定，防止重复绑定
                             continue #处理一次ping和pong
                     break
                 
@@ -144,18 +148,16 @@ class FakeServerSocket:
                     server.logger.warning("伪装服务器收到了意外的数据包")
                 break#此while
             except TypeError as e:
-                server.logger.warning("伪装服务器收到了无效数据（类型错误）")
-                server.logger.warning(f'error file:{e.__traceback__.tb_frame.f_globals["__file__"]} line:{e.__traceback__.tb_lineno}')
+                server.logger.warning(f"伪装服务器收到了无效数据[{e}]")
                 break#此while
             except IndexError as e:
-                server.logger.warning("伪装服务器收到了无效数据（索引溢出）")
-                server.logger.warning(f'error file:{e.__traceback__.tb_frame.f_globals["__file__"]} line:{e.__traceback__.tb_lineno}')
+                server.logger.warning(f"伪装服务器收到了无效数据[{e}]")
                 break#此while
             except ConnectionError:
                 server.logger.warning("客户端提前断开连接")
                 break#此while
             except socket.timeout:
-                server.logger.debug("连接超时")#此处超时处理read_exactly
+                #server.logger.debug("连接超时")#此处超时处理read_exactly
                 break#此while
         #关闭退出
         client_socket.close()
@@ -192,13 +194,16 @@ class FakeServerSocket:
             return "unknown_request"
 
     def handle_ping(self, client_socket,data,i, server: PluginServerInterface):
-        server.logger.info("伪装服务器收到了一次pong")
-        pong_data = read_long(data,i)
+        server.logger.info("伪装服务器收到了一次ping")
         #https://minecraft.wiki/w/Java_Edition_protocol#Pong_Response_(status)
+        long_data, i = read_long(data, i)
+        logger.info(f"数据解析：long_data[{long_data}]")
+        
         response = bytearray()
         write_varint(response, 9)
         write_varint(response, 1)
-        write_long(response, pong_data)
+        write_long(response, long_data)
+        server.logger.info("响应pong")
         client_socket.sendall(response)
 
     def stop(self, server: PluginServerInterface):
@@ -214,7 +219,7 @@ class FakeServerSocket:
             if count == 0:
                 server.logger.error("关闭伪装服务器失败: 等待超时")
                 return False
-            count = count - 1
+            count -= 1
             time.sleep(1)
 
         if self.server_socket:

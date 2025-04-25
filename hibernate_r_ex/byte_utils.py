@@ -53,7 +53,7 @@ def read_ushort(byte, i):
 
 def read_long(byte, i):
     new_i = i + 8
-    return struct.unpack(">q", byte[i:new_i]), new_i
+    return struct.unpack(">q", byte[i:new_i])[0], new_i
 
 
 def write_varint(byte, value):
@@ -76,7 +76,7 @@ def write_ushort(byte: bytearray, value):
 def write_long(byte: bytearray, value):
     byte += struct.pack(">q", value)
 
-def write_utf(byte, value):
+def write_utf(byte: bytearray, value):
     write_varint(byte, len(value))
     byte.extend(value.encode('utf-8'))
 
