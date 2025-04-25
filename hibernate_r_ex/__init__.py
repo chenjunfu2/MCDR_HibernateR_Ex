@@ -5,6 +5,8 @@ import time
 import re
 
 from mcdreforged.api.all import *
+from pybase16384.backends.cffi.build import source
+
 from .byte_utils import *
 
 from .FakeServer import FakeServerSocket
@@ -35,14 +37,20 @@ def on_load(server: PluginServerInterface, prev_module):
         timer_manager = TimerManager(server)#创建TimerManager实例
 
 
+    def command_help(source: CommandSource):
+        source.reply(RText("!!hr timer start/stop -- (开启/停止)停服倒计时器", color=RColor.yellow))
+        source.reply(RText("!!hr sleep s/fs -- 休眠(服务器/伪装服务器)", color=RColor.yellow))
+        source.reply(RText("!!hr wakeup s/fs -- 唤醒(服务器/伪装服务器)", color=RColor.yellow))
+
     # 构建命令树
     builder = SimpleCommandBuilder()
-    builder.command('!!hr timer start', lambda src: timer_manager.start_timer(src.get_server(), test_stop_server))
-    builder.command('!!hr timer stop', lambda src: timer_manager.cancel_timer(src.get_server()))
-    builder.command('!!hr sleep', lambda src: hr_sleep(src.get_server()))
-    builder.command('!!hr sleep fs', lambda src: fake_server_socket.stop(src.get_server()))
-    builder.command('!!hr wakeup', lambda src: hr_wakeup(src.get_server()))
-    builder.command('!!hr wakeup fs', lambda src: fake_server_socket.start(src.get_server(), start_server))
+    builder.command('!!hr', lambda src: permission_test(src, command_help, [src]))
+    builder.command('!!hr timer start', lambda src: permission_test(src, timer_manager.start_timer,[src.get_server(), test_stop_server]))
+    builder.command('!!hr timer stop', lambda src: permission_test(src,timer_manager.cancel_timer,[src.get_server()]))
+    builder.command('!!hr sleep s', lambda src: permission_test(src,hr_sleep,[src.get_server()]))
+    builder.command('!!hr sleep fs', lambda src: permission_test(src,fake_server_socket.stop,[src.get_server()]))
+    builder.command('!!hr wakeup s', lambda src: permission_test(src,hr_wakeup,[src.get_server()]))
+    builder.command('!!hr wakeup fs', lambda src: permission_test(src,fake_server_socket.start,[src.get_server(), start_server]))
     builder.register(server)
 
     server.logger.info("参数初始化完成")
@@ -63,6 +71,16 @@ def on_unload(server: PluginServerInterface):
     # 关闭伪装服务器
     fake_server_socket.stop(server)
     server.logger.info("插件已卸载")
+    
+
+def permission_test(source: CommandSource, func, args = None):
+    if source.is_player:
+        source.reply(RText("该命令只能在控制台使用", color=RColor.red))
+        return
+    elif source.is_console:
+        if args is None:
+            args = []
+        func(*args)
 
 # 手动休眠
 @new_thread
@@ -120,11 +138,11 @@ def start_server(server: PluginServerInterface):
     server.start()
 
 def on_info(server: PluginServerInterface, info: Info) -> None:
-	if info.is_from_server:
-		if (m := re.compile(r'(?P<name>[^\[]+)\[(?P<ip>.*?)\] logged in with entity id \d+ at \(.+\)').fullmatch(info.content)) is not None:
-			player_joined(server, m['name'], m['ip'])
-		if (m := re.compile(r'(?P<name>[^ ]+) left the game').fullmatch(info.content)) is not None:
-			player_left(server, m['name'])
+    if info.is_from_server:
+        if (m := re.compile(r'(?P<name>[^\[]+)\[(?P<ip>.*?)\] logged in with entity id \d+ at \(.+\)').fullmatch(info.content)) is not None:
+            player_joined(server, m['name'], m['ip'])
+        if (m := re.compile(r'(?P<name>[^ ]+) left the game').fullmatch(info.content)) is not None:
+            player_left(server, m['name'])
 
 def player_joined(server, player, ip):
     server.logger.info(player + " [" + ip + "] join")
@@ -142,4 +160,4 @@ def player_left(server, player):
 #如果在start_timer内调用test_stop_server，这说明当前无玩家，重启一次定时器事件，这次为真实的停服函数
 def test_stop_server(server: PluginServerInterface):
     server.logger.info("虚拟停服被调用，启动真实停服定时器")
-    timer_manager.start_timer(server,stop_server)#只有在这里调用真实处理
+    timer_manager.start_timer(server,stop_server, wait=True)#只有在这里调用真实处理

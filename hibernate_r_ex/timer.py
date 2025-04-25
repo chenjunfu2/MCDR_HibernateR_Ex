@@ -21,10 +21,10 @@ class TimerManager:
 		self.blacklist_player_patterns = [re.compile(p) for p in blacklist_player]# 预编译正则
 		server.logger.info("定时服务初始化完成")
 
-	def start_timer(self, server: PluginServerInterface, stop_server):
+	def start_timer(self, server: PluginServerInterface, stop_server, wait = False):
 		with self._lock:
 			self._cancel_timer_impl(server)
-			self._start_timer_impl(server,stop_server)#启动计时器
+			self._start_timer_impl(server,stop_server, wait)#启动计时器
 			server.logger.info("休眠倒计时开始")
 
 	def cancel_timer(self, server: PluginServerInterface):
@@ -32,9 +32,10 @@ class TimerManager:
 			self._cancel_timer_impl(server)
 			server.logger.info("休眠倒计时取消")
 
-	def _start_timer_impl(self, server: PluginServerInterface, stop_server):
+	def _start_timer_impl(self, server: PluginServerInterface, stop_server, wait):
 		#启动定时循环
-		self.current_timer = threading.Timer(self.wait_sec, self.timing_event, [server,stop_server])
+		#如果wait为false，则代表测试是否停服，直接设置为5s启动，否则进行等待
+		self.current_timer = threading.Timer(self.wait_sec if wait else 5, self.timing_event, [server,stop_server])
 		self.current_timer.start()
 
 	def _cancel_timer_impl(self, server: PluginServerInterface):
