@@ -135,12 +135,15 @@ def start_server(server: PluginServerInterface):
     global wish_server_status
     wish_server_status = True
     server.start()
+    
+LOGIN_PATTERN = re.compile(r'(?P<name>[^\[]+)\[(?P<ip>.*?)\] logged in with entity id \d+ at \(.+\)')
+LEAVE_PATTERN = re.compile(r'(?P<name>[^ ]+) left the game')
 
 def on_info(server: PluginServerInterface, info: Info) -> None:
     if info.is_from_server:
-        if (m := re.compile(r'(?P<name>[^\[]+)\[(?P<ip>.*?)\] logged in with entity id \d+ at \(.+\)').fullmatch(info.content)) is not None:
+        if (m := LOGIN_PATTERN.fullmatch(info.content)) is not None:
             player_joined(server, m['name'], m['ip'])
-        if (m := re.compile(r'(?P<name>[^ ]+) left the game').fullmatch(info.content)) is not None:
+        if (m := LEAVE_PATTERN.fullmatch(info.content)) is not None:
             player_left(server, m['name'])
 
 def player_joined(server, player, ip):
