@@ -57,7 +57,7 @@ def on_load(server: PluginServerInterface, prev_module):
         server.logger.info("等待服务器启动后，再启动计时器")
     else:
         start_wait_sec = get_config().start_wait_sec
-        if start_wait_sec > 0:
+        if start_wait_sec >= 0:
             server.logger.warning(f"服务器未运行，等待{start_wait_sec}s后启动伪装服务器")
             wait_server_load(server, start_wait_sec)
         else:
