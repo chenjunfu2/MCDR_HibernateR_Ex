@@ -1,13 +1,8 @@
-# hibernate_r/timer.py
-
-import time
-import json
 import re
 import threading
 
 from mcdreforged.api.all import *
-from .byte_utils import *
-from .json import get_config
+from .config import get_config
 import minecraft_data_api as api
 
 class TimerManager:
@@ -15,10 +10,18 @@ class TimerManager:
 	def __init__(self, server: PluginServerInterface):
 		self._lock = threading.Lock()
 		self.current_timer = None
+		
 		config = get_config()
-		self.wait_sec = config["wait_sec"]
-		blacklist_player = config["blacklist_player"]
-		self.blacklist_player_patterns = [re.compile(p) for p in blacklist_player]# 预编译正则
+		
+		self.wait_sec = config.wait_sec
+		self.whitelist_match_mode = config.whitelist_match_mode
+		
+		if self.whitelist_match_mode:
+			self.player_patterns = [re.compile(p) for p in config.whitelist_player]  # 预编译正则
+		else:
+			self.player_patterns = [re.compile(p) for p in config.blacklist_player]# 预编译正则
+		
+		
 		server.logger.info("定时服务初始化完成")
 
 	def start_timer(self, server: PluginServerInterface, stop_server, wait = False):
@@ -49,13 +52,13 @@ class TimerManager:
 			server.logger.info("时间事件激活，检查玩家在线情况")
 			def filter_players(player_list, patterns):
 				"""返回（合法玩家列表，被过滤玩家列表）"""
-				whitelist, blacklist = [], []
+				matched, unmatched = [], []
 				for player in player_list:
 					if any(p.fullmatch(player) for p in patterns):
-						blacklist.append(player)
+						unmatched.append(player)
 					else:
-						whitelist.append(player)
-				return whitelist, blacklist
+						matched.append(player)
+				return matched, unmatched
 		
 
 			result = api.get_server_player_list(timeout=10.0)#延迟10s
@@ -64,13 +67,24 @@ class TimerManager:
 				return
 			else:
 				player_list = list(map(str, result[2]))
-				whitelist, blacklist = filter_players(player_list, self.blacklist_player_patterns);
-				server.logger.info(f"玩家数量：{result[0]}/{result[1]}，白名单玩家：{whitelist}，黑名单玩家：{blacklist}")
+				matched, unmatched = filter_players(player_list, self.player_patterns)
+				
+				server.logger.info(f"玩家数量：{result[0]}/{result[1]}，匹配模式：{ "白名单" if self.whitelist_match_mode else "黑名单" }，已匹配：{matched}，未匹配：{unmatched}")
+				
+			# 白名单情况下，只要有白名单玩家就不关服
+			# 黑名单模式下，只要有玩家都在黑名单，则关服
 		
-			if len(whitelist) == 0:
-				server.logger.info("检测到服务器无白名单玩家，尝试关闭服务器")
-				stop_server(server)#关闭服务器
+			if self.whitelist_match_mode:
+				if len(matched) == 0:
+					server.logger.info("服务器无白名单玩家，尝试关闭服务器")
+					stop_server(server)  # 关闭服务器
+				else:
+					server.logger.info("服务器有白名单玩家，跳过")
 			else:
-				server.logger.info("服务器有白名单玩家，跳过")
+				if len(unmatched) == 0: # 未匹配为0，全在黑名单
+					server.logger.info("服务器仅有黑名单玩家，尝试关闭服务器")
+					stop_server(server)  # 关闭服务器
+				else:
+					server.logger.info("服务器有非黑名单玩家，跳过")
 		else:
 			server.logger.info("服务器未启动，跳过")

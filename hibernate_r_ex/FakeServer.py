@@ -1,5 +1,3 @@
-import time
-import socket
 import json
 import os.path
 import base64
@@ -9,26 +7,26 @@ import traceback
 from mcdreforged.api.all import *
 
 from .byte_utils import *
-from .json import get_config
+from .config import get_config
 
 class FakeServerSocket:
     def __init__(self, server: PluginServerInterface):
         self.config = get_config()
         self.fs_icon = None
         self.server_socket = None
-        self.fs_status = False
+        self.fs_is_running = False
         self.fs_stop = False
 
-        if not os.path.exists(self.config["server_icon"]):
+        if not os.path.exists(self.config.server_icon):
             server.logger.warning("未找到服务器图标，设置为None")
         else:
-            with open(self.config["server_icon"], 'rb') as image:
+            with open(self.config.server_icon, 'rb') as image:
                 self.fs_icon = "data:image/png;base64," + base64.b64encode(image.read()).decode()
 
         self.motd = {
-                "version": {"name": self.config["version_text"], "protocol": self.config["protocol"]},
-                "players": {"max": len(self.config["samples"]), "online": len(self.config["samples"]), "sample": [{"name": sample, "id": str(uuid.uuid4())} for sample in self.config["samples"]]},
-                "description": {"text": self.config["motd"]}
+                "version": {"name": self.config.version_text, "protocol": self.config.protocol},
+                "players": {"max": len(self.config.samples), "online": len(self.config.samples), "sample": [{"name": sample, "id": str(uuid.uuid4())} for sample in self.config.samples]},
+                "description": {"text": self.config.motd}
             }
         if self.fs_icon and len(self.fs_icon) > 0:
             self.motd["favicon"] = self.fs_icon
@@ -40,7 +38,7 @@ class FakeServerSocket:
     @new_thread
     def start(self, server: PluginServerInterface, start_server):
         # 检查伪装服务器是否在运行
-        if self.fs_status == True:#已经启动了，返回
+        if self.fs_is_running:#已经启动了，返回
             server.logger.info("伪装服务器正在运行")
             return
         
@@ -50,7 +48,7 @@ class FakeServerSocket:
             return
 
          #设置标签
-        self.fs_status = True
+        self.fs_is_running = True
         server.logger.info("伪装服务器已启动")
 
         #FS创建部分
@@ -59,7 +57,7 @@ class FakeServerSocket:
             try:
                 self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, True)
-                self.server_socket.bind((self.config["ip"], self.config["port"]))
+                self.server_socket.bind((self.config.ip, self.config.port))
                 self.server_socket.settimeout(5)#5s超时
             except Exception as e:
                 server.logger.error(f"伪装服务器启动失败: {e}")
@@ -69,7 +67,7 @@ class FakeServerSocket:
             #FS监听部分
             try:
                 self.server_socket.listen(32)#最大允许连接数
-                while self.fs_stop == False:
+                while not self.fs_stop:
                     try:
                         client_socket, client_address = self.server_socket.accept()
                         server.logger.info(f"收到来自{client_address[0]}:{client_address[1]}的连接")
@@ -88,7 +86,7 @@ class FakeServerSocket:
         #设置退出状态
         self.server_socket = None
         self.fs_stop = False
-        self.fs_status = False
+        self.fs_is_running = False
 
         server.logger.info("伪装服务器已退出")
 
@@ -100,7 +98,7 @@ class FakeServerSocket:
     def handle_packet(self,server: PluginServerInterface,client_socket):
         result = None
         binding = False
-        while self.fs_stop == False:
+        while not self.fs_stop:
             try:
                 #https://minecraft.wiki/w/Java_Edition_protocol#Handshaking
                 head = read_exactly(client_socket,1,timeout=5)[0]
@@ -168,7 +166,7 @@ class FakeServerSocket:
         if result == "login_request":#链接请求，响应踢出消息，然后关闭伪服务端并启动服务器
             #https://minecraft.wiki/w/Java_Edition_protocol#Login_Start
             #不读取，忽略信息(2字节玩家名长度，然后是玩家名，接着是其他数据(uuid))
-            write_response(client_socket, json.dumps({"text": self.config["kick_message"]}))
+            write_response(client_socket, json.dumps({"text": self.config.kick_message}))
             self.fs_stop = True#提醒服务器应该关闭
             return "login_request"
 
@@ -206,7 +204,7 @@ class FakeServerSocket:
         client_socket.sendall(response)
 
     def stop(self, server: PluginServerInterface):
-        if self.fs_status == False:
+        if not self.fs_is_running:
             server.logger.info("伪装服务器已是关闭状态")
             return True
   
@@ -214,7 +212,7 @@ class FakeServerSocket:
         server.logger.info("正在关闭伪装服务器")
         #设置时间
         count = 6#比socket timeout多1
-        while self.fs_status == True:#等待服务器关闭
+        while self.fs_is_running:#等待服务器关闭
             if count == 0:
                 server.logger.error("关闭伪装服务器失败: 等待超时")
                 return False

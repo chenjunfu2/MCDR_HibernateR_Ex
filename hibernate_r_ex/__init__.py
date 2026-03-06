@@ -1,8 +1,5 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-import time
 import re
+import time
 
 from mcdreforged.api.all import *
 
@@ -10,24 +7,22 @@ from .byte_utils import *
 
 from .FakeServer import FakeServerSocket
 from .timer import TimerManager
-from .json import read_config_file
+from .config import load_config_file
+from .config import get_config
 
 
 # 创建 TimerManager 实例
 timer_manager = None
 # 创建 fake_server_socket 实例
 fake_server_socket = None
-# 预期的服务器状态
-wish_server_status = False
 
 
 # 初始化插件
 def on_load(server: PluginServerInterface, prev_module):
     # 读取配置文件
-    read_config_file(server)
+    load_config_file(server)
 
     global fake_server_socket
-    global wish_server_status
     global timer_manager
 
     if fake_server_socket is None:
@@ -55,12 +50,33 @@ def on_load(server: PluginServerInterface, prev_module):
     server.logger.info("参数初始化完成")
 
     # 检查服务器状态并启动计时器或伪装服务器
-    if server.is_server_running() or server.is_server_startup():
-        wish_server_status = True
+    if server.is_server_running():
         server.logger.info("服务器正在运行，启动计时器")
         timer_manager.start_timer(server, test_stop_server)#启动时间事件
+    elif server.is_server_startup():
+        server.logger.info("等待服务器启动后，再启动计时器")
     else:
-        server.logger.warning("无法确认服务器状态，请手动启动伪装服务器")
+        start_wait_sec = get_config().start_wait_sec
+        if start_wait_sec > 0:
+            server.logger.warning(f"服务器未运行，等待{start_wait_sec}s后启动伪装服务器")
+            wait_server_load(server, start_wait_sec)
+        else:
+            server.logger.warning("服务器未运行，伪装服务器自启动已取消")
+        
+        
+
+@new_thread
+def wait_server_load(server: PluginServerInterface, timeout):
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        if server.is_server_startup() or server.is_server_running():
+            server.logger.info("服务器已启动，伪装服务器自启动已取消")
+            return #服务器启动，跳过伪装服务器启动
+        time.sleep(0.1)
+    
+    #运行到此处代表超时未启动，判断服务器未运行
+    server.logger.info(f"服务器超时{timeout}s未运行，正在启动伪装服务器")
+    fake_server_socket.start(server, start_server)
 
 
 def on_unload(server: PluginServerInterface):
@@ -107,8 +123,6 @@ def hr_wakeup(server: PluginServerInterface):
 # 服务器启动完成事件
 @new_thread
 def on_server_startup(server: PluginServerInterface):
-    global wish_server_status
-    wish_server_status = True
     global timer_manager
     timer_manager.start_timer(server, test_stop_server)#启动事件
     server.logger.info("事件：服务器启动")
@@ -118,22 +132,17 @@ def on_server_stop(server: PluginServerInterface,  server_return_code: int):
     server.logger.info("事件：服务器关闭")
     global timer_manager
     timer_manager.cancel_timer(server)
-    # 匹配预期状态
-    if wish_server_status != False:
+    if server_return_code != 0:
         server.logger.warning("意外的服务器关闭，不启动伪装服务器")
     else:
         fake_server_socket.start(server, start_server)
 
 # 主动关闭服务器
 def stop_server(server: PluginServerInterface):
-    global wish_server_status
-    wish_server_status = False
     server.stop()
 
 # 主动开启服务器
 def start_server(server: PluginServerInterface):
-    global wish_server_status
-    wish_server_status = True
     server.start()
     
 LOGIN_PATTERN = re.compile(r'(?P<name>[^\[]+)\[(?P<ip>.*?)\] logged in with entity id \d+ at \(.+\)')
