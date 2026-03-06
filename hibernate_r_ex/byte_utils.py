@@ -1,6 +1,7 @@
 import struct
 import socket
 import time
+import uuid
 
 
 def read_exactly(sock, n, timeout=5):
@@ -23,37 +24,119 @@ def read_exactly(sock, n, timeout=5):
             raise
     return bytes(data)
 
-def read_varint(byte, i):
-    result = 0
-    for j in range(6):
-        if j >= 5:#i在0~4共5个索引内，一共能读出5*7=35个bits，刚好大于32，如果再多则varint出错，抛出异常
-            raise IOError("Packet is too long!")
-        byte_in = byte[i]
-        i += 1
-        result |= (byte_in & 0x7F) << (j * 7)
-        if (byte_in & 0x80) != 0x80:
-            return result, i
+
+def format_hex(data, sep=' ', prefix='', case='upper'):
+    """
+    格式化字节数组为十六进制字符串
+    参数：
+        data: bytes/bytearray 原始二进制数据
+        sep: 分隔符 (默认空格)
+        prefix: 前缀 (如 '0x', '$' 等)
+        case: 大小写控制 ('upper'/'lower')
+    """
+    case = case.lower()
+    fmt = f"{{:{prefix}02{'X' if case == 'upper' else 'x'}}}"
+    return sep.join(fmt.format(b) for b in data)
 
 
-def read_str(byte, i):
-    (length, i) = read_varint(byte, i)
-    ip = byte[i:(i + length)].decode('utf-8')
-    i += length
-    return ip, i
-
-def read_byte(byte, i):
-    new_i = i + 1
-    return byte[i], new_i
+class BytesReaderError(Exception):
+    def __init__(self, message):
+        self.message = message
+    
+    def __str__(self):
+        return self.message
 
 
-def read_ushort(byte, i):
-    new_i = i + 2
-    return struct.unpack(">H", byte[i:new_i])[0], new_i
-
-
-def read_long(byte, i):
-    new_i = i + 8
-    return struct.unpack(">q", byte[i:new_i])[0], new_i
+class BytesReader:
+    def __init__(self, data: bytes, i: int = 0):
+        self.data = data
+        self.i = i  # 当前读取位置索引
+    
+    def len(self):
+        return len(self.data)
+    
+    def getdata(self):
+        return self.data
+    
+    def read_varint(self):
+        result = 0
+        
+        for j in range(6):
+            if j >= 5:  # i在0~4共5个索引内，一共能读出5*7=35个bits，刚好大于32，如果再多则varint出错，抛出异常
+                raise BytesReaderError("Insufficient data for varint")
+            
+            byte_in = self.data[self.i]
+            self.i += 1
+            result |= (byte_in & 0x7F) << (j * 7)
+            if (byte_in & 0x80) != 0x80:
+                break
+        
+        return result
+    
+    def read_str(self):
+        length = self.read_varint()
+        
+        if self.i + length > len(self.data):
+            raise BytesReaderError("Insufficient data for string")
+        
+        old_i = self.i
+        self.i += length
+        return self.data[old_i:self.i].decode('utf-8')
+    
+    def read_bytes(self, size):
+        if self.i + size > len(self.data):
+            raise BytesReaderError(f"Insufficient data for [{size}]bytes")
+        
+        old_i = self.i
+        self.i += size
+        return self.data[old_i:self.i]
+    
+    def read_byte(self):
+        if self.i + 1 > len(self.data):
+            raise BytesReaderError("Insufficient data for byte")
+        
+        old_i = self.i
+        self.i += 1
+        return self.data[old_i]
+    
+    def read_int(self):
+        if self.i + 4 > len(self.data):
+            raise BytesReaderError("Insufficient data for int")
+        
+        old_i = self.i
+        self.i += 4
+        return struct.unpack(">i", self.data[old_i:self.i])[0]
+    
+    def read_ushort(self):
+        if self.i + 2 > len(self.data):
+            raise BytesReaderError("Insufficient data for ushort")
+        
+        old_i = self.i
+        self.i += 2
+        return struct.unpack(">H", self.data[old_i:self.i])[0]
+    
+    def read_long(self):
+        if self.i + 8 > len(self.data):
+            raise BytesReaderError("Insufficient data for long")
+        
+        old_i = self.i
+        self.i += 8
+        return struct.unpack(">q", self.data[old_i:self.i])[0]
+    
+    def read_uuid(self):
+        # 编码为无符号的 128 位整数uuid，16bytes
+        if self.i + 16 > len(self.data):
+            raise BytesReaderError("Insufficient data for uuid")
+        
+        old_i = self.i
+        self.i += 16
+        return uuid.UUID(bytes=self.data[old_i:self.i])
+    
+    def unread(self, length):
+        if length > self.i:
+            raise BytesReaderError("Unread length out of range")
+        self.i -= length
+        return self.i
 
 
 def write_varint(byte, value):
@@ -70,20 +153,28 @@ def write_varint(byte, value):
 def write_byte(byte: bytearray, value):
     byte.append(value & 0xff)
 
+
 def write_ushort(byte: bytearray, value):
     byte += struct.pack(">H", value)
 
+
 def write_long(byte: bytearray, value):
     byte += struct.pack(">q", value)
+
 
 def write_utf(byte: bytearray, value):
     write_varint(byte, len(value))
     byte.extend(value.encode('utf-8'))
 
-def write_response(client_socket, response):
+
+def write_str_response(client_socket, packet_id, response):
+    # 写入包头：packet_id
     response_array = bytearray()
-    write_byte(response_array, 0x00)
+    write_byte(response_array, packet_id)
+    # 写入字符串
     write_utf(response_array, response)
+    # 写入长度
     length = bytearray()
     write_varint(length, len(response_array))
+    # 发送数据
     client_socket.sendall(bytes(length) + bytes(response_array))
