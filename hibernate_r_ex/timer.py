@@ -55,9 +55,9 @@ class TimerManager:
 				matched, unmatched = [], []
 				for player in player_list:
 					if any(p.fullmatch(player) for p in patterns):
-						unmatched.append(player)
-					else:
 						matched.append(player)
+					else:
+						unmatched.append(player)
 				return matched, unmatched
 		
 
