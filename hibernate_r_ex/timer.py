@@ -69,7 +69,7 @@ class TimerManager:
 				player_list = list(map(str, result[2]))
 				matched, unmatched = filter_players(player_list, self.player_patterns)
 				
-				server.logger.info(f"玩家数量：{result[0]}/{result[1]}，匹配模式：{ "白名单" if self.whitelist_match_mode else "黑名单" }，已匹配：{matched}，未匹配：{unmatched}")
+				server.logger.info(f"玩家数量：{result[0]}/{result[1]}，匹配模式：{ '白名单' if self.whitelist_match_mode else '黑名单' }，已匹配：{matched}，未匹配：{unmatched}")
 				
 			# 白名单情况下，只要有白名单玩家就不关服
 			# 黑名单模式下，只要有玩家都在黑名单，则关服
