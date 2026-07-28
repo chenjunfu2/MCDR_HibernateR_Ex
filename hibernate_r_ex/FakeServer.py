@@ -1,7 +1,6 @@
 import json
 import os.path
 import base64
-import uuid
 import traceback
 
 from mcdreforged.api.all import *

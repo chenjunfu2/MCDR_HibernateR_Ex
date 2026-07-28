@@ -15,6 +15,8 @@ from .config import get_config
 timer_manager = None
 # 创建 fake_server_socket 实例
 fake_server_socket = None
+# 是否是插件主动关闭服务器
+is_my_stop_server = False
 
 
 # 初始化插件
@@ -85,6 +87,7 @@ def on_unload(server: PluginServerInterface):
     timer_manager.cancel_timer(server)
     # 关闭伪装服务器
     fake_server_socket.stop(server)
+    is_my_stop_server = False
     server.logger.info("插件已卸载")
     
 
@@ -130,15 +133,18 @@ def on_server_startup(server: PluginServerInterface):
 @new_thread
 def on_server_stop(server: PluginServerInterface,  server_return_code: int):
     server.logger.info("事件：服务器关闭")
-    global timer_manager
+    global timer_manager, is_my_stop_server
     timer_manager.cancel_timer(server)
-    if server_return_code != 0:
+    if server_return_code != 0 or is_my_stop_server == False:
         server.logger.warning("意外的服务器关闭，不启动伪装服务器")
     else:
         fake_server_socket.start(server, start_server)
+    is_my_stop_server = False
 
 # 主动关闭服务器
 def stop_server(server: PluginServerInterface):
+    global is_my_stop_server
+    is_my_stop_server = True
     server.stop()
 
 # 主动开启服务器
